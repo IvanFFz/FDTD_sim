@@ -190,7 +190,7 @@ def add_geometry_object_no_return_cuda(geometry_points, field, effect):
 		
 		cuda.atomic.min(field,(geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]), effect)
 		
-def extend_geometry_nPoints_no_return_cuda (geometry_points, field, distance, effect):
+def add_extended_geometry_nPoints_no_return_cuda (geometry_points, field, distance, effect):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	
@@ -203,7 +203,7 @@ def extend_geometry_nPoints_no_return_cuda (geometry_points, field, distance, ef
 						cuda.atomic.min(field,(geometry_points[i, 0] + a, geometry_points[i, 1] + b, geometry_points[i, 2] + c), effect)
 
 #Initialize the limits of the simulation volume with PML method
-def PML_limit_volume_no_return_cuda (absorption, maxDist, maxValue):
+def PML_limit_volume_no_return_cuda (absorption, maxDist, maxValue, minValue):
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
 	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
@@ -213,21 +213,19 @@ def PML_limit_volume_no_return_cuda (absorption, maxDist, maxValue):
 		if (i<maxDist or i>=absorption.shape[0]-maxDist) and (j<maxDist or j>=absorption.shape[1]-maxDist) and (k<maxDist or k>=absorption.shape[2]-maxDist):
 			cuda.atommic.max(absorption,
 							(i,j,k),
-							maxValue*(1 - min([i, j, k, absorption.shape[0]-i, absorption.shape[1]-j, absorption.shape[2]-k])/maxDist))
+							(maxValue - minValue)*(1 - min([i, j, k, absorption.shape[0]-i, absorption.shape[1]-j, absorption.shape[2]-k])/maxDist) + minValue)
 		
 #Then use concatenate arrays
 #Emitters properties defined as -> Amplitude, Frequency, Phase <- In that order			
-def set_point_as_emitter_no_return_cuda (new_emitters_location, new_emitters_properties, geometry_points, amplitude, frequency, phase):
+def set_point_as_emitter_no_return_cuda (emitters_amplitude, emitters_frequency, emitters_phase, geometry_points, amplitude, frequency, phase):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	
 	if i<geometry_points.shape[0]:
-		new_emitters_location[i, 0] = geometry_points[i, 0]
-		new_emitters_location[i, 1] = geometry_points[i, 1]
-		new_emitters_location[i, 2] = geometry_points[i, 2]
-		new_emitters_properties[i, 0] = amplitude[i]
-		new_emitters_properties[i, 1] = frequency[i]
-		new_emitters_properties[i, 2] = phase[i]
+		
+		emitters_amplitude[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = amplitude[i]
+		emitters_frequency[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = frequency[i]
+		emitters_phase[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = phase[i]
 		
 class manager_cuda():
 	
@@ -256,6 +254,10 @@ class manager_cuda():
 		self.velocity_z = None
 		
 		self.velocity_b = None
+		self.emitters_amplitude = None
+		self.emitters_frequency = None
+		self.emitters_phase =None
+		
 		self.geometry_field = None #beta in the paper
 		self.absorptivity = None #sigma in the paper
 		
@@ -287,9 +289,10 @@ class manager_cuda():
 																					+self.OutVarType+'[:,:])', fastmath = True)(concatenate_matrix_noreturn_cuda),
 				'add_absorption_object': 							cuda.jit('void(int64[:,:], '+self.VarType+'[:,:,:], '+self.VarType+')', fastmath = True)(add_absorption_object_no_return_cuda),
 				'add_geometry_object':					 			cuda.jit('void(int64[:,:], '+self.VarType+'[:,:,:], '+self.VarType+')', fastmath = True)(add_geometry_object_no_return_cuda),
-				'extend_geometry_nPoints':					 		cuda.jit('void(int64[:,:], '+self.VarType+'[:,:,:], int64, '+self.VarType+')', fastmath = True)(extend_geometry_nPoints_no_return_cuda),
-				'PML_limit_volume':					 				cuda.jit('void('+self.VarType+'[:,:,:], int64, '+self.VarType+')', fastmath = True)(PML_limit_volume_no_return_cuda),
-				'set_point_as_emitter':								cuda.jit('void(int64[:,:], '+self.VarType+'[:,:], int64[:,:], '+self.VarType+'[:,:], '+self.VarType+'[:,:], '+self.VarType+'[:,:])', fastmath = True)(set_point_as_emitter_no_return_cuda)
+				'add_extended_geometry_nPoints':					cuda.jit('void(int64[:,:], '+self.VarType+'[:,:,:], int64, '+self.VarType+')', fastmath = True)(add_extended_geometry_nPoints_no_return_cuda),
+				'PML_limit_volume':					 				cuda.jit('void('+self.VarType+'[:,:,:], int64, '+self.VarType+', '+self.VarType+')', fastmath = True)(PML_limit_volume_no_return_cuda),
+				'set_point_as_emitter':								cuda.jit('void('+self.VarType+'[:,:,:], '+self.VarType+'[:,:,:], '+self.VarType+'[:,:,:], int64[:,:], '
+																					+self.VarType+'[:], '+self.VarType+'[:], '+self.VarType+'[:])', fastmath = True)(set_point_as_emitter_no_return_cuda)
 				}
 			
 		except Exception as e:
@@ -369,9 +372,9 @@ class manager_cuda():
 				geometry_points, field, distance, effect)
 
 		except Exception as e:
-			print(f'Error in utils.cuda.manager.manager_cuda.extend_geometry_nPoints: {e}')ç
+			print(f'Error in utils.cuda.manager.manager_cuda.extend_geometry_nPoints: {e}')
 			
-	def PML_limit_volume_no_return_cuda(self, absorption, maxDist, maxValue):
+	def PML_limit_volume(self, absorption, maxDist, maxValue, minValue):
 		'''
 		After this, stream.sychronize()
 		'''
@@ -379,31 +382,46 @@ class manager_cuda():
 			
 			assert (type(absorption) == np.ndarray), 'Arrays must be defined as numpy array.'
 			assert int(maxDist)>0, 'Distance must be positive.'
+			assert minValue >= 0 and maxValue > minValue, f'Max value {maxValue} and Min value {minValue} are not correctly chosen.'
 			
 			self.config_manager(size=(absorption.shape[0], absorption.shape[1], absorption.shape[2]), blockdim=optimize_blockdim(absorption.shape[0], absorption.shape[1], absorption.shape[2]))
 
-			self.config['PML_limit_volume_no_return_cuda'][self.griddim, self.blockdim, self.stream](
-				absorption, maxDist, maxValue)
+			self.config['PML_limit_volume'][self.griddim, self.blockdim, self.stream](
+				absorption, maxDist, maxValue, minValue)
 
 		except Exception as e:
-			print(f'Error in utils.cuda.manager.manager_cuda.PML_limit_volume_no_return_cuda: {e}')
+			print(f'Error in utils.cuda.manager.manager_cuda.PML_limit_volume: {e}')
 
-	def set_point_as_emitter(self, new_emitters_location, new_emitters_properties, geometry_points, amplitude, frequency, phase):
+	def set_point_as_emitter(self, emitters_amplitude, emitters_frequency, emitters_phase, geometry_points, amplitude, frequency, phase):
 		
 		try:
 			
-			assert (type(geometry_points) == np.ndarray and type(new_emitters_location) == np.ndarray and type(new_emitters_properties) == np.ndarray
-		   and type(amplitude) == np.ndarray and type(frequency) == np.ndarray and type(phase) == np.ndarray), 'Arrays must be defined as numpy array.'
+			assert (type(geometry_points) == np.ndarray and type(emitters_amplitude) == np.ndarray
+					and type(emitters_frequency) == np.ndarray and type(emitters_phase) == np.ndarray
+					and type(amplitude) == np.ndarray and type(frequency) == np.ndarray and type(phase) == np.ndarray), 'Arrays must be defined as numpy array.'
 			
 			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(geometry_points.shape[0]))
 
-			self.config['PML_limit_volume_no_return_cuda'][self.griddim, self.blockdim, self.stream](
-				new_emitters_location, new_emitters_properties, geometry_points, amplitude, frequency, phase)
+			self.config['set_point_as_emitter'][self.griddim, self.blockdim, self.stream](
+				emitters_amplitude, emitters_frequency, emitters_phase, geometry_points, amplitude, frequency, phase)
 
 		except Exception as e:
-			print(f'Error in utils.cuda.manager.manager_cuda.PML_limit_volume_no_return_cuda: {e}')
+			print(f'Error in utils.cuda.manager.manager_cuda.set_point_as_emitter: {e}')
 
-	def locate_object(self,original_pos, original_norm, final_pos, final_norm, rescale=1.0):
+	def locate_geometry_object(self, geometry_points, max_distance, step_effect):
+		try:
+			assert (type(original_pos) == np.ndarray and type(original_norm) == np.ndarray
+					and type(final_pos) == np.ndarray and type(final_norm) == np.ndarray), 'Emitters must be defined as numpy array.'
+			
+			self.transducer_pos_cuda = cuda.to_device(transducer_pos, stream = self.stream)
+			self.transducer_norm_cuda = cuda.to_device(transducer_norm, stream = self.stream)
+			#All transducers have the same radius. Can be change to consider different transducers.
+			self.transducer_radius = transducer_radius
+			
+		except Exception as e:
+			print(f'Error in utils.cuda.manager.manager_cuda.locate_transducer: {e}')
+			
+	def locate_absorption_region(self, geometry_points, effect):
 		try:
 			assert (type(original_pos) == np.ndarray and type(original_norm) == np.ndarray
 					and type(final_pos) == np.ndarray and type(final_norm) == np.ndarray), 'Emitters must be defined as numpy array.'
@@ -416,15 +434,15 @@ class manager_cuda():
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.locate_transducer: {e}')
 
-	def locate_transducer(self, transducer_pos, transducer_norm, transducer_radius):
+	def locate_transducer(self, geometry_points, points_of_emission, max_distance, step_effect):
 		try:
-			assert (type(transducer_pos) == np.ndarray and type(transducer_norm) == np.ndarray), 'Emitters must be defined as numpy array.'
 			
-			self.transducer_pos_cuda = cuda.to_device(transducer_pos, stream = self.stream)
-			self.transducer_norm_cuda = cuda.to_device(transducer_norm, stream = self.stream)
-			#All transducers have the same radius. Can be change to consider different transducers.
-			self.transducer_radius = transducer_radius
-			
+			assert (cuda.cudadrv.devicearray.is_cuda_ndarray(geometry_points) and cuda.cudadrv.devicearray.is_cuda_ndarray(points_of_emission)), 'Arrays must be loaded in GPU device.'
+						
+			self.locate_geometry_object(geometry_points, max_distance, step_effect)
+
+
+
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.locate_transducer: {e}')
 	

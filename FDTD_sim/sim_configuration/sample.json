@@ -1,0 +1,52 @@
+{
+  "precission": [ "float64", "complex128" ],
+
+  "grid": {
+
+    "sim_parameters": {
+      "dt": 0.01,
+      "ds": 0.01,
+      "nPoints": 4096,
+      "airAbsorptivity": 0.0,
+      "density": 1,
+      "c": 1
+    },
+
+    "boundary": {
+      "layer_thickness": 6,
+      "max_object_distance": 6
+    }
+
+  },
+
+  "transducers": [
+    {
+      "model": "path",
+      "zone_emission": "path",
+
+      "units": [
+        {
+          "location": [ 0, 0, 0 ], //"position"
+          "angle": [ 0, 0, 0 ] //"angle to rotate"
+        }
+      ]
+
+
+    }
+  ],
+
+  "objects": [
+    {
+      "model": "path",
+
+      "units": [
+        {
+          "location": [ 0, 0, 0 ], //"position"
+          "angle": [ 0, 0, 0 ] //"angle to rotate"
+        }
+      ]
+
+
+    }
+  ]
+}

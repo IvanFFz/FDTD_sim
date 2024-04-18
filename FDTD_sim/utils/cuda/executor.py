@@ -6,119 +6,79 @@ from numba import cuda
 from .calculator import calculator_cuda, calculate_bd_b2 as to_b2, optimize_blockdim
 from .manager import manager_cuda
 from .solver import solver_cuda
+from .loader import loader_cuda
 
-
-
-def define_A_matrix_noreturn_cuda (matrix):
-    '''
-	Function that calculates the SQUARE of the distance
-	'''
-		
-    i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-    j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
-	
-    if i<matrix.shape[0] and j<matrix.shape[1]:
-        if i==j:
-            matrix[i,j] = 0.5 + 0.0j
-        else:
-            matrix[i,j] = -1.0* matrix[i,j]
-
-
-def calculate_transmission_matrix_noreturn_cuda (direct_contribution, sm_DD_Green_function, mesh_pressions, out):
-    '''
-	Function that calculates the SQUARE of the distance
-	'''
-		
-    i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-    j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
-	
-    if i<direct_contribution.shape[0] and j<direct_contribution.shape[1]:
-        out[i,j] = direct_contribution[i,j]
-        
-        for k in range(mesh_pressions.shape[0]):
-            #out[i,j] += sm_DD_Green_function[i,k] * mesh_pressions[k,j]
-            cuda.atomic.add(out.real, (i,j), (sm_DD_Green_function[i,k] * mesh_pressions[k,j]).real)
-            cuda.atomic.add(out.imag, (i,j), (sm_DD_Green_function[i,k] * mesh_pressions[k,j]).imag)
-            	
-def extract_data_for_mesh_pressions_noreturn_cuda (direct_contribution, adapted_data, elements):
-    '''
-	Function that extracts the necessary data to calculate mesh pressions
-	'''
-    i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-    
-    if i<adapted_data.shape[0]:
-        adapted_data[i] = direct_contribution[i,elements]
-        
-def save_mesh_pressions_noreturn_cuda (matrix, array, elements):
+     
+def copy_auxiliar_variables_noreturn_cuda (aux_pressure, pressure, aux_vx, vx, aux_vy, vy, aux_vz, vz):
     '''
 	Function that saves the data of the mesh pressions
 	'''
     i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+    j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
+    k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
     
-    if i<array.shape[0]:
-        matrix[i,elements] = array[i]
-'''
+    if i<pressure.shape[0] and j<pressure.shape[1] and k<pressure.shape[2]:
+        pressure[i, j, k] = aux_pressure[i, j, k]
+        
+        vx[i, j, k] = aux_vx[i, j, k]
+        vy[i, j, k] = aux_vy[i, j, k]
+        vz[i, j, k] = aux_vz[i, j, k]
 
-Not prepared to use the "transducers_modifies_patterns" option. That means that the presence of the 
-transducer in the volume does not affect the resulting patter. WIP.
 
-'''
 
 class executor ():
     
-    def __init__ (self, ds, dt, nPoint_per_side, layer_thickness, maxDistEffect, airAbsorptivity = 0, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
+    def __init__ (self, config_path, print_config = False, size=None, blockdim=(16,16)):
         
         assert cuda.is_available(), 'Cuda is not available.'
         #assert stream is not None, 'Cuda not configured. Stream required.'
         
         ## In the future we can modify it to use different transducers with different Pref's.
-        self.Pref = Pref
+        #self.Pref = Pref
         
-        if var_type == 'float32':
-            self.var_type = f32
-        elif var_type == 'float64':
-            self.var_type = f64
-        else:
-            raise Exception (f'Bad type selected {var_type}')
-        
-        self.VarType = var_type
-        
-        if out_var_type == 'complex64':
-            self.out_var_type = c64
-        elif out_var_type == 'complex128':
-            self.out_var_type = c128
-        else:
-            raise Exception (f'Bad type selected {out_var_type}')
-        
-        self.OutVarType = out_var_type
+        #if var_type == 'float32':
+        #    self.var_type = f32
+        #elif var_type == 'float64':
+        #    self.var_type = f64
+        #else:
+        #    raise Exception (f'Bad type selected {var_type}')
+        #
+        self.var_type = None
+        self.VarType = None
+        #
+        #if out_var_type == 'complex64':
+        #    self.out_var_type = c64
+        #elif out_var_type == 'complex128':
+        #    self.out_var_type = c128
+        #else:
+        #    raise Exception (f'Bad type selected {out_var_type}')
+        #
+        self.out_var_type = None
+        self.OutVarType = None
         
 
         self.calculator = None
-        
         self.manager = None
-        
+        self.loader = None
         self.solver = None
         
         self.blockdim = blockdim
         self.size = size
         self.griddim = None
-        
+        ##########
+        self.init_workspace(config_path, print_config)
         self.config_executor_functions()
-        self.config_simulation(dt, ds, nPoint_per_side)
-        self.config_geometries(layer_thickness, maxDistEffect, airAbsorptivity)
         
-        self.auxiliar = {
-                    
-                    'sq_distance':		        	        None,
-                    'cos_angle_sn':		        	        None,			
-                    'bessel_divx':		        	        None,
-                    #'sm_DD_Green_function':		    None,
-                    #'direct_contribution_pm':		None,
-                    'complex_phase':			            None,
-                    'Total_Mesh':                           None,
-                    'direct_contribution_emitter_mesh':     None,
-                    'mesh_pression_emitter':                None
-            }
+        #self.auxiliar = {
+        #            
+        #            'vx':		        	        None,
+        #            'vy':		        	        None,			
+        #            'vz':		        	        None,
+        #            'pressure':			            None,
+        #            'Total_Mesh':                           None,
+        #            'direct_contribution_emitter_mesh':     None,
+        #            'mesh_pression_emitter':                None
+        #    }
         
         self.A_matrix = None
         self.mesh_pressions = None
@@ -127,10 +87,11 @@ class executor ():
     def config_executor_functions (self):
         try:
             self.config = {
-				'define_A_matrix':                      cuda.jit('void('+self.OutVarType+'[:,:])', fastmath = True)(define_A_matrix_noreturn_cuda),
+				'copy_auxiliar_variables':              cuda.jit('void('+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:]'
+                                                                        +self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:])', fastmath = True)(copy_auxiliar_variables_noreturn_cuda),
                 'calculate_transmission_matrix':        cuda.jit('void('+self.OutVarType+'[:,:], '+self.OutVarType+'[:,:], '+self.OutVarType+'[:,:], '+self.OutVarType+'[:,:])', fastmath = True)(calculate_transmission_matrix_noreturn_cuda),
                 'extract_data_for_mesh_pressions':      cuda.jit('void('+self.OutVarType+'[:,:], '+self.OutVarType+'[:], int64)', fastmath = True)(extract_data_for_mesh_pressions_noreturn_cuda),
-                'save_mesh_pressions':                 cuda.jit('void('+self.OutVarType+'[:,:], '+self.OutVarType+'[:], int64)', fastmath = True)(save_mesh_pressions_noreturn_cuda)
+                'save_mesh_pressions':                  cuda.jit('void('+self.OutVarType+'[:,:], '+self.OutVarType+'[:], int64)', fastmath = True)(save_mesh_pressions_noreturn_cuda)
             }
 			
         except Exception as e:
@@ -158,6 +119,29 @@ class executor ():
                 self.stream = stream
         except Exception as e:
             print(f'Error in utils.cuda.executor.executor.config_executor: {e}')
+            
+    def config_precission(self, precission):
+        try:
+            
+            if precission[0] == 'float32':
+                self.var_type = f32
+            elif precission[0] == 'float64':
+                self.var_type = f64
+            else:
+                raise Exception (f'Bad type selected {precission[0]}')
+        
+            self.VarType = precission[0]
+        
+            if precission[1] == 'complex64':
+                self.out_var_type = c64
+            elif precission[1] == 'complex128':
+                self.out_var_type = c128
+            else:
+                raise Exception (f'Bad type selected {precission[1]}')
+        
+            self.OutVarType = precission[1]
+        except Exception as e:
+            print(f'Error in utils.cuda.executor.executor.config_precission: {e}')
 		     
     def config_geometries(self, layer_thickness, maxDistEffect, airAbsorptivity = 0):
         try:
@@ -173,22 +157,33 @@ class executor ():
         except Exception as e:
             print(f'Error in utils.cuda.executor.executor.config_geometries: {e}')
             
-    def config_simulation(self, dt, ds, nPoints):
+    def config_simulation(self, dt, ds, nPoints, density, c):
         try:
             
             self.dt = dt
             self.ds = ds
             self.nPoints = nPoints
+            self.density = density
+            self.c = c
                         
         except Exception as e:
             print(f'Error in utils.cuda.executor.executor.config_simulation: {e}')
 
-            
-
-    def init_workspace (self, transducers_pos, transducers_norm, transducers_radius, select_emitters, number_elements, maxDist=6, maxValue=-2, transducers_modifies_patterns = False, mesh_pos = None, mesh_norm = None, mesh_area_div_4pi = None):
+    def init_workspace (self, config_path, print_config = False):
         try:
             
             self.stream = cuda.stream()
+            
+            self.loader = loader_cuda(config_path, print_config, stream = self.stream, var_type = self.VarType, out_var_type = self.OutVarType, blockdim = self.blockdim)
+            self.config_precission(self.loader.configuration['precission'])
+            self.config_simulation(self.loader.configuration['grid']['sim_parameters']['dt'],
+                                   self.loader.configuration['grid']['sim_parameters']['ds'],
+                                   self.loader.configuration['grid']['sim_parameters']['nPoints'],
+                                   self.loader.configuration['grid']['sim_parameters']['density'],
+                                   self.loader.configuration['grid']['sim_parameters']['c'])
+            self.config_geometries(self.loader.configuration['grid']['boundary']['layer_thickness'],
+                                   self.loader.configuration['grid']['boundary']['max_object_distance'],
+                                   self.loader.configuration['grid']['sim_parameters']['airAbsorptivity'])
               
             self.config_executor(blockdim=self.blockdim, stream=self.stream)
         
@@ -196,14 +191,16 @@ class executor ():
         
             self.manager = manager_cuda(stream = self.stream, var_type = self.VarType, out_var_type = self.OutVarType, blockdim = self.blockdim)
             
-            self.solver = solver_cuda(max_iter=100, stream=self.stream, var_type=self.VarType, out_var_type = self.OutVarType, blockdim=self.blockdim)
-
+            #self.solver = solver_cuda(max_iter=100, stream=self.stream, var_type=self.VarType, out_var_type = self.OutVarType, blockdim=self.blockdim)
+            
             self.init_grid()
+            
+            self.fill_grid()
 		
         except Exception as e:
             print(f'Error in utils.cuda.executor.executor.init_workspace: {e}')
  
-    def init_grid(self, maxDist=6, maxValue=-2):
+    def init_grid(self):
         try:
             
             self.manager.pressure = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
@@ -211,21 +208,64 @@ class executor ():
             self.manager.velocity_x = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
             self.manager.velocity_y = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
             self.manager.velocity_z = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
-		
+            
+            self.manager.emitters_amplitude = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
+            self.manager.emitters_frequency = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
+            self.manager.emitters_phase = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
             self.manager.velocity_b = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
             
             self.manager.geometry_field = cuda.to_device(np.ones((self.nPoints, self.nPoints, self.nPoints), dtype = self.var_type), stream = self.stream) #beta in the paper, init to air (1)
-            self.manager.absorptivity = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.var_type), stream = self.stream) #sigma in the paper
-            
-            if maxValue==-2:
-                maxValue = 0.5/self.dt
-              
-            self.manager.PML_limit_volume_no_return_cuda(self.manager.absorptivity, maxDist, maxValue)
+            if self.airAbsorptivity == 0.0:
+                self.manager.absorptivity = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.var_type), stream = self.stream) #sigma in the paper
+            else:
+                self.manager.absorptivity = cuda.to_device(self.airAbsorptivity * np.ones((self.nPoints, self.nPoints, self.nPoints), dtype = self.var_type), stream = self.stream) #sigma in the paper
+                          
+            self.manager.PML_limit_volume(self.manager.absorptivity, self.maxDistEffect, self.maxAbsorptivity, self.airAbsorptivity)
 
-            self.grid = cuda.device_array((positions_B.shape[0],positions_A.shape[0]), dtype = self.var_type, stream = self.stream)
+            #self.grid = cuda.device_array((positions_B.shape[0],positions_A.shape[0]), dtype = self.var_type, stream = self.stream)
 		
         except Exception as e:
-            print(f'Error in utils.cuda.executor.executor.init_workspace: {e}')
+            print(f'Error in utils.cuda.executor.executor.init_grid: {e}')
+
+    def fill_grid(self):
+        try:
+            
+            self.loader.load_transducers()
+            
+            self.loader.load_objects()
+
+        except Exception as e:
+            print(f'Error in utils.cuda.executor.executor.fill_grid: {e}')
+            
+    def simulation_step (self, time):
+        try:
+            
+            self.calculator.step_velocity_values(self.manager.velocity_x, self.manager.velocity_b, self.manager.pressure,
+                                                 self.manager.geometry_field, self.manager.absorptivity, self.dt, self.ds,
+                                                 self.density, axis = 0)
+            self.calculator.step_velocity_values(self.manager.velocity_y, self.manager.velocity_b, self.manager.pressure,
+                                                 self.manager.geometry_field, self.manager.absorptivity, self.dt, self.ds,
+                                                 self.density, axis = 1)
+            self.calculator.step_velocity_values(self.manager.velocity_z, self.manager.velocity_b, self.manager.pressure,
+                                                 self.manager.geometry_field, self.manager.absorptivity, self.dt, self.ds,
+                                                 self.density, axis = 2)
+            
+            self.calculator.set_velocity_emitters(self.manager.velocity_b, self.manager.emitters_amplitude, self.manager.emitters_frequency, self.manager.emitters_phase, time)
+            
+            self.calculator.step_pressure_values(self.manager.pressure, self.manager.velocity_x, self.manager.velocity_y,
+                                                 self.manager.velocity_z, self.manager.geometry_field, self.manager.absorptivity,
+                                                 self.dt, self.ds, self.density*self.c**2)
+
+        except Exception as e:
+            print(f'Error in utils.cuda.executor.executor.simulation_step: {e}')
+            
+    #def copy_auxiliar_variables (self):
+    #    try:
+    #        
+    #        
+    #
+    #    except Exception as e:
+    #        print(f'Error in utils.cuda.executor.executor.copy_auxiliar_variables: {e}')
 
     def preprocess_transducers (self, transducers_modifies_patterns = False):
         try:
@@ -244,6 +284,13 @@ class executor ():
             self.stream.synchronize()
         except Exception as e:
             print(f'Error in utils.cuda.executor.executor.preprocess_transducers: {e}')
+
+
+
+
+
+
+
 
     def calculate_sm_DD_Green_function (self, positions_A, normals_A, positions_B, area_div_4pi_A, k, out, sq_distance_calculated = False):
         

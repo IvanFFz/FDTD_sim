@@ -139,7 +139,7 @@ Function that calculates the next step in velocity
 Execute for each axis
 Standard discrete spatial derivatives defined as 0.5*([x+1] - [x-1]), with boundaries [1]-[0] and [end]-[end-1]
 '''
-def step_velocity_values_noreturn_cuda (v_out, v_in, v_b, pressure, beta, sigma, dt, ds, rho, axis):
+def step_velocity_values_noreturn_cuda (velocity, v_b, pressure, beta, sigma, dt, ds, rho, axis):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
@@ -147,39 +147,42 @@ def step_velocity_values_noreturn_cuda (v_out, v_in, v_b, pressure, beta, sigma,
 	
 	if i<pressure.shape[0] and j<pressure.shape[1] and k<pressure.shape[2]:
 		if axis == 0:
-			v_out[i,j,k] = ( beta[i, j, k] * v_in[i, j, k] - beta[i, j, k]**2 * dt *(
+			velocity[i,j,k] = ( beta[i, j, k] * velocity[i, j, k] - beta[i, j, k]**2 * dt *(
 					0.5 * ( pressure[min(pressure.shape[0]-1, i+1), j, k] - pressure[max(0, i-1), j, k]) / ( ds * rho ) ) +
 					( 1 - beta[i,j,k] + sigma[i, j, k] ) * dt * v_b[i,j,k]
 				) / ( beta[i, j, k] + ( 1 - beta[i, j, k] + sigma[i, j, k] ) * dt )
 		elif axis == 1:
-			v_out[i,j,k] = ( beta[i, j, k] * v_in[i, j, k] - beta[i, j, k]**2 * dt * (
+			velocity[i,j,k] = ( beta[i, j, k] * velocity[i, j, k] - beta[i, j, k]**2 * dt * (
 					0.5 * ( pressure[i, min(pressure.shape[0]-1, j+1), k] - pressure[i, max(0, j-1), k]) / ( 2 * ds * rho ) )+
 					( 1 - beta[i,j,k] + sigma[i, j, k] ) * dt * v_b[i,j,k]
 				) / ( beta[i, j, k] + ( 1 - beta[i, j, k] + sigma[i, j, k] ) * dt )
 		elif axis == 2:
-			v_out[i,j,k] = ( beta[i, j, k] * v_in[i, j, k] - beta[i, j, k]**2 * dt * (
+			velocity[i,j,k] = ( beta[i, j, k] * velocity[i, j, k] - beta[i, j, k]**2 * dt * (
 					0.5 * ( pressure[i, j, min(pressure.shape[0]-1, k+1)] - pressure[i, j, max(0, k-1)]) / ( 2 * ds * rho ) ) +
 					( 1 - beta[i,j,k] + sigma[i, j, k] ) * dt * v_b[i,j,k]
 				) / ( beta[i, j, k] + ( 1 - beta[i, j, k] + sigma[i, j, k] ) * dt )
 			
-def step_pressure_values_noreturn_cuda (p_out, p_in, vx, vy, vz, beta, sigma, dt, ds, rho_csq):
+def step_pressure_values_noreturn_cuda (pressure, vx, vy, vz, beta, sigma, dt, ds, rho_csq):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
 	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
 	
-	if i<p_in.shape[0] and j<p_in.shape[1] and k<p_in.shape[2]:
+	if i<pressure.shape[0] and j<pressure.shape[1] and k<pressure.shape[2]:
 		
-		p_out[i,j,k] = ( p_in[i, j, k] - rho_csq * dt * (
+		pressure[i,j,k] = ( pressure[i, j, k] - rho_csq * dt * (
 				vx[min(vx.shape[0]-1, i+1), j, k] - vx[max(0, i-1), j, k] + vy[i, min(vy.shape[0]-1, j+1), k] - vy[i, max(0, j-1), k] + vz[i, j, min(vz.shape[0]-1, k+1)] - vz[i, j, max(0, k-1)] ) / ( 2 * ds )
 			) / ( 1 + ( 1 - beta[i, j, k] + sigma[i, j, k] ) * dt )
 		
-def set_velocity_emitters (velocity_boundary, emitter_location, emitter_properties, time):
+def set_velocity_emitters (velocity_boundary, emitters_amplitude, emitters_frequency, emitters_phase, time):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
+	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
 	
-	if i<emitter_location.shape[0]:
-		velocity_boundary[emitter_location[i, 0], emitter_location[i, 1], emitter_location[i, 2]] = cmath.rect(emitter_properties[i, 0], emitter_properties[i, 1]*time + emitter_properties[i, 2])
+	if i<velocity_boundary.shape[0] and j<velocity_boundary.shape[1] and k<velocity_boundary.shape[2]:
+		if emitters_amplitude[i, j, k]!=0:
+			velocity_boundary[i, j, k] = cmath.rect(emitters_amplitude[i, j, k], emitters_frequency[i, j, k]*time + emitters_phase[i, j, k])
 
 
 class calculator_cuda():
@@ -214,13 +217,14 @@ class calculator_cuda():
 	def config_calculator_functions (self):
 		try:
 			self.config = {
-				'step_velocity_values':				cuda.jit('void('+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '
-																	+self.VarType+'[:,:,:], '	+self.VarType+'[:,:,:], '	+self.VarType+', '			+self.VarType+', '
-																	+self.VarType+', '			+'int64)', fastmath = True)(step_velocity_values_noreturn_cuda),
-				'step_pressure_values':				cuda.jit('void('+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '
-																	+self.OutVarType+'[:,:,:], '+self.VarType+'[:,:,:], '	+self.VarType+'[:,:,:], '	+self.VarType+', '
-																	+self.VarType+', '			+self.VarType+')', fastmath = True)(step_pressure_values_noreturn_cuda),
-				'set_velocity_emitters':			cuda.jit('void('+self.OutVarType+'[:,:,:], int64[:,:], '+self.VarType+'[:,:], '+self.VarType+')', fastmath = True)(step_pressure_values_noreturn_cuda)	
+				'step_velocity_values':				cuda.jit('void('+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '
+																	+self.VarType+'[:,:,:], '	+self.VarType+'[:,:,:], '	+self.VarType+', '
+																	+self.VarType+', '			+self.VarType+', '			+'int64)', fastmath = True)(step_velocity_values_noreturn_cuda),
+				'step_pressure_values':				cuda.jit('void('+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:], '
+																	+self.OutVarType+'[:,:,:], '+self.VarType+'[:,:,:], '	+self.VarType+'[:,:,:], '	
+																	+self.VarType+', '			+self.VarType+', '			+self.VarType+')', fastmath = True)(step_pressure_values_noreturn_cuda),
+				'set_velocity_emitters':			cuda.jit('void('+self.OutVarType+'[:,:,:], '+self.VarType+'[:,:,:], '+self.VarType+'[:,:,:], '
+																	+self.VarType+'[:,:,:], '+self.VarType+')', fastmath = True)(step_pressure_values_noreturn_cuda)	
 																	
 				}
 			
@@ -256,42 +260,42 @@ class calculator_cuda():
 	Implement functions that do the things
 	'''
 	
-	def set_velocity_emitters (self, velocity_boundary, emitter_location, emitter_properties, time):
+	def set_velocity_emitters (self, velocity_boundary, emitters_amplitude, emitters_frequency, emitters_phase, time):
 		try:
-			assert (cuda.cudadrv.devicearray.is_cuda_ndarray(velocity_boundary) and cuda.cudadrv.devicearray.is_cuda_ndarray(emitter_location) 
-					and cuda.cudadrv.devicearray.is_cuda_ndarray(emitter_properties) ), 'Arrays must be loaded in GPU device.'
+			assert (cuda.cudadrv.devicearray.is_cuda_ndarray(velocity_boundary) and cuda.cudadrv.devicearray.is_cuda_ndarray(emitters_amplitude)
+					and cuda.cudadrv.devicearray.is_cuda_ndarray(emitters_frequency) and cuda.cudadrv.devicearray.is_cuda_ndarray(emitters_phase)), 'Arrays must be loaded in GPU device.'
 
-			self.config_calculator(size=(emitter_location.shape[0]), blockdim=optimize_blockdim(emitter_location.shape[0]))
+			self.config_calculator(size=(velocity_boundary.shape[0], velocity_boundary.shape[1], velocity_boundary.shape[2]), 
+						  blockdim=optimize_blockdim(velocity_boundary.shape[0], velocity_boundary.shape[1], velocity_boundary.shape[2]))
 			
-			self.config['step_velocity_values'][self.griddim, self.blockdim, self.stream](velocity_boundary, emitter_location, emitter_properties, time)
+			self.config['step_velocity_values'][self.griddim, self.blockdim, self.stream](velocity_boundary, emitters_amplitude, emitters_frequency, emitters_phase, time)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.calculator.calculator_cuda.step_velocity_values: {e}')
 
-	def step_velocity_values (self, v_out, v_in, v_b, pressure, beta, sigma, dt, ds, rho, axis):
+	def step_velocity_values (self, velocity, v_b, pressure, beta, sigma, dt, ds, rho, axis):
 		try:
-			assert (cuda.cudadrv.devicearray.is_cuda_ndarray(v_out) and cuda.cudadrv.devicearray.is_cuda_ndarray(v_in) 
-					and cuda.cudadrv.devicearray.is_cuda_ndarray(v_b) and cuda.cudadrv.devicearray.is_cuda_ndarray(pressure)
-					and cuda.cudadrv.devicearray.is_cuda_ndarray(beta) and cuda.cudadrv.devicearray.is_cuda_ndarray(sigma)), 'Arrays must be loaded in GPU device.'
+			assert (cuda.cudadrv.devicearray.is_cuda_ndarray(velocity) and cuda.cudadrv.devicearray.is_cuda_ndarray(v_b)
+					and cuda.cudadrv.devicearray.is_cuda_ndarray(pressure) and cuda.cudadrv.devicearray.is_cuda_ndarray(beta)
+					and cuda.cudadrv.devicearray.is_cuda_ndarray(sigma)), 'Arrays must be loaded in GPU device.'
 			assert int(axis) in [0, 1, 2], f'Axis {axis} not valid.'
 
-			self.config_calculator(size=(v_in.shape[0], v_in.shape[1], v_in.shape[2]), blockdim=optimize_blockdim(v_in.shape[0], v_in.shape[1], v_in.shape[2]))
+			self.config_calculator(size=(velocity.shape[0], velocity.shape[1], velocity.shape[2]), blockdim=optimize_blockdim(velocity.shape[0], velocity.shape[1], velocity.shape[2]))
 			
-			self.config['step_velocity_values'][self.griddim, self.blockdim, self.stream](v_out, v_in, v_b, pressure, beta, sigma, dt, ds, rho, axis)
+			self.config['step_velocity_values'][self.griddim, self.blockdim, self.stream](velocity, v_b, pressure, beta, sigma, dt, ds, rho, axis)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.calculator.calculator_cuda.step_velocity_values: {e}')
 
-	def step_pressure_values (self, p_out, p_in, vx, vy, vz, beta, sigma, dt, ds, rho_csq):
+	def step_pressure_values (self, pressure, vx, vy, vz, beta, sigma, dt, ds, rho_csq):
 		try:
-			assert (cuda.cudadrv.devicearray.is_cuda_ndarray(p_out) and cuda.cudadrv.devicearray.is_cuda_ndarray(p_in) 
-					and cuda.cudadrv.devicearray.is_cuda_ndarray(vx) and cuda.cudadrv.devicearray.is_cuda_ndarray(vy)
-					and cuda.cudadrv.devicearray.is_cuda_ndarray(vz)
+			assert (cuda.cudadrv.devicearray.is_cuda_ndarray(pressure) and cuda.cudadrv.devicearray.is_cuda_ndarray(vx)
+					and cuda.cudadrv.devicearray.is_cuda_ndarray(vy) and cuda.cudadrv.devicearray.is_cuda_ndarray(vz)
 					and cuda.cudadrv.devicearray.is_cuda_ndarray(beta) and cuda.cudadrv.devicearray.is_cuda_ndarray(sigma)), 'Arrays must be loaded in GPU device.'
 			
-			self.config_calculator(size=(p_in.shape[0], p_in.shape[1], p_in.shape[2]), blockdim=optimize_blockdim(p_in.shape[0], p_in.shape[1], p_in.shape[2]))
+			self.config_calculator(size=(pressure.shape[0], pressure.shape[1], pressure.shape[2]), blockdim=optimize_blockdim(pressure.shape[0], pressure.shape[1], pressure.shape[2]))
 			
-			self.config['step_pressure_values'][self.griddim, self.blockdim, self.stream](p_out, p_in, vx, vy, vz, beta, sigma, dt, ds, rho_csq)
+			self.config['step_pressure_values'][self.griddim, self.blockdim, self.stream](pressure, vx, vy, vz, beta, sigma, dt, ds, rho_csq)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.calculator.calculator_cuda.step_pressure_values: {e}')
