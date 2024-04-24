@@ -4,11 +4,11 @@ from numba import cuda
 def calculate_bd_b2 (number, base, max_value = 1024):
     return min(int(base**(np.ceil(np.log(number)/np.log(base))-1)), max_value)
 
-def optimize_blockdim (size_0, size_1=0, size_2=0):
+def optimize_blockdim (processorCount, size_0, size_1=0, size_2=0):
 	threshold_1 = 1.5
 	threshold_2 = 1.5
 	bd_0 = calculate_bd_b2(size_0, 2)
-	param = 7
+	param = np.ceil(np.log(2*processorCount)/np.log(2))
 
 	if size_1==0 and size_2==0:
 		
@@ -17,11 +17,11 @@ def optimize_blockdim (size_0, size_1=0, size_2=0):
 		exp_bd = np.log(bd_0/32)/np.log(2)
 		
 		#exp_32 = exp_bd/5
-		exp_256 = exp_bd / param
+		exp_PC = exp_bd / param
 		
-		if exp_256 <= threshold_1:
+		if exp_PC <= threshold_1:
 			bd = (max(1, calculate_bd_b2(size_0/(2**param), 2, 32)),)
-		elif exp_256 > threshold_1:
+		elif exp_PC > threshold_1:
 			bd = (max(1, calculate_bd_b2(size_0/(2**param), 2)),)
 			
 	elif size_2 == 0:
@@ -35,11 +35,11 @@ def optimize_blockdim (size_0, size_1=0, size_2=0):
 			exp_bd = np.log(bd_0/32)/np.log(2)
 		
 			#exp_32 = exp_bd/5
-			exp_256 = exp_bd / param
+			exp_PC = exp_bd / param
 		
-			if exp_256 <= threshold_1:
+			if exp_PC <= threshold_1:
 				bd = (max(1, calculate_bd_b2(size_0*size_1/(2**param), 2, 32)), max(1, size_1))
-			elif exp_256 > threshold_1:
+			elif exp_PC > threshold_1:
 				bd = (max(1, calculate_bd_b2(size_0*size_1/(2**param), 2)), max(1, size_1))
 			
 		else:
@@ -51,18 +51,18 @@ def optimize_blockdim (size_0, size_1=0, size_2=0):
 			if exp_bd_0 > exp_bd_1:
 				exp_0 = exp_bd_0 / np.ceil(np.log(2**param)/np.log(2))-1
 				exp_1 = exp_bd_1 / np.ceil(np.log(2**param)/np.log(2))-2
-				div_0 = 16
-				div_1 = 8
+				div_0 = 2**(np.ceil(param/2))
+				div_1 = 2**(param - np.ceil(param/2))
 			elif exp_bd_0 < exp_bd_1:
 				exp_0 = exp_bd_0 / np.ceil(np.log(2**param)/np.log(2))-2
 				exp_1 = exp_bd_1 / np.ceil(np.log(2**param)/np.log(2))-1
-				div_0 = 8
-				div_1 = 16
+				div_0 = 2**(param - np.ceil(param/2))
+				div_1 = 2**(np.ceil(param/2))
 			else:
 				exp_0 = exp_bd_0 / np.ceil(np.log(2**param)/np.log(2))-1
 				exp_1 = exp_bd_1 / np.ceil(np.log(2**param)/np.log(2))-1
-				div_0 = 16
-				div_1 = 16
+				div_0 = 2**(np.ceil(param/2))
+				div_1 = 2**(np.ceil(param/2))
 		
 			if exp_0 <= threshold_2 and exp_1 <= threshold_2:
 				bd = (max(1, calculate_bd_b2(size_0/div_0, 2, div_0)), (max(1, calculate_bd_b2(size_1/div_1, 2, div_1))))
@@ -85,11 +85,11 @@ def optimize_blockdim (size_0, size_1=0, size_2=0):
 			exp_bd = np.log(bd_0/32)/np.log(2)
 		
 			#exp_32 = exp_bd/5
-			exp_256 = exp_bd / param
+			exp_PC = exp_bd / param
 		
-			if exp_256 <= threshold_1:
+			if exp_PC <= threshold_1:
 				bd = (max(1, calculate_bd_b2(size_0*size_1/(2**param), 2, 32)), max(1, size_1), max(1, size_2))
-			elif exp_256 > threshold_1:
+			elif exp_PC > threshold_1:
 				bd = (max(1, calculate_bd_b2(size_0*size_1/(2**param), 2)), max(1, size_1), max(1, size_2))
 			
 		else:
@@ -103,16 +103,16 @@ def optimize_blockdim (size_0, size_1=0, size_2=0):
 				exp_0 = exp_bd_0 / np.ceil(np.log(2**param)/np.log(2))-2
 				exp_1 = exp_bd_1 / np.ceil(np.log(2**param)/np.log(2))-1
 				exp_2 = exp_bd_2 / np.ceil(np.log(2**param)/np.log(2))-1
-				div_0 = 4
-				div_1 = 8
-				div_2 = 8
+				div_0 = 2**(np.ceil(param/4))
+				div_1 = 2**(np.ceil(param/3))
+				div_2 = 2**(np.ceil(param/3))
 			else:
 				exp_0 = exp_bd_0 / np.ceil(np.log(2**param)/np.log(2))-1
 				exp_1 = exp_bd_1 / np.ceil(np.log(2**param)/np.log(2))-1
 				exp_2 = exp_bd_2 / np.ceil(np.log(2**param)/np.log(2))-1
-				div_0 = 8
-				div_1 = 4
-				div_2 = 4
+				div_0 = 2**(np.ceil(param/3))
+				div_1 = 2**(np.ceil(param/4))
+				div_2 = 2**(np.ceil(param/4))
 		
 			if exp_0 <= threshold_2 and max(exp_bd_1, exp_bd_2) <= threshold_2:
 				bd = (max(1, calculate_bd_b2(size_0/div_0, 2, div_0)), (max(1, calculate_bd_b2(size_1/div_1, 2, div_1))), (max(1, calculate_bd_b2(size_2/div_2, 2, div_2))))
@@ -153,12 +153,12 @@ def step_velocity_values_noreturn_cuda (velocity, v_b, pressure, beta, sigma, dt
 				) / ( beta[i, j, k] + ( 1 - beta[i, j, k] + sigma[i, j, k] ) * dt )
 		elif axis == 1:
 			velocity[i,j,k] = ( beta[i, j, k] * velocity[i, j, k] - beta[i, j, k]**2 * dt * (
-					0.5 * ( pressure[i, min(pressure.shape[0]-1, j+1), k] - pressure[i, max(0, j-1), k]) / ( 2 * ds * rho ) )+
+					0.5 * ( pressure[i, min(pressure.shape[0]-1, j+1), k] - pressure[i, max(0, j-1), k]) / ( ds * rho ) )+
 					( 1 - beta[i,j,k] + sigma[i, j, k] ) * dt * v_b[i,j,k]
 				) / ( beta[i, j, k] + ( 1 - beta[i, j, k] + sigma[i, j, k] ) * dt )
 		elif axis == 2:
 			velocity[i,j,k] = ( beta[i, j, k] * velocity[i, j, k] - beta[i, j, k]**2 * dt * (
-					0.5 * ( pressure[i, j, min(pressure.shape[0]-1, k+1)] - pressure[i, j, max(0, k-1)]) / ( 2 * ds * rho ) ) +
+					0.5 * ( pressure[i, j, min(pressure.shape[0]-1, k+1)] - pressure[i, j, max(0, k-1)]) / ( ds * rho ) ) +
 					( 1 - beta[i,j,k] + sigma[i, j, k] ) * dt * v_b[i,j,k]
 				) / ( beta[i, j, k] + ( 1 - beta[i, j, k] + sigma[i, j, k] ) * dt )
 			
@@ -170,11 +170,11 @@ def step_pressure_values_noreturn_cuda (pressure, vx, vy, vz, beta, sigma, dt, d
 	
 	if i<pressure.shape[0] and j<pressure.shape[1] and k<pressure.shape[2]:
 		
-		pressure[i,j,k] = ( pressure[i, j, k] - rho_csq * dt * (
-				vx[min(vx.shape[0]-1, i+1), j, k] - vx[max(0, i-1), j, k] + vy[i, min(vy.shape[0]-1, j+1), k] - vy[i, max(0, j-1), k] + vz[i, j, min(vz.shape[0]-1, k+1)] - vz[i, j, max(0, k-1)] ) / ( 2 * ds )
+		pressure[i,j,k] = ( pressure[i, j, k] - rho_csq * dt * 0.5 * (
+				vx[min(vx.shape[0]-1, i+1), j, k] - vx[max(0, i-1), j, k] + vy[i, min(vy.shape[0]-1, j+1), k] - vy[i, max(0, j-1), k] + vz[i, j, min(vz.shape[0]-1, k+1)] - vz[i, j, max(0, k-1)] ) / ( ds )
 			) / ( 1 + ( 1 - beta[i, j, k] + sigma[i, j, k] ) * dt )
 		
-def set_velocity_emitters (velocity_boundary, emitters_amplitude, emitters_frequency, emitters_phase, time):
+def set_velocity_emitters_noreturn_cuda (velocity_boundary, emitters_amplitude, emitters_frequency, emitters_phase, time):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
@@ -204,6 +204,7 @@ class calculator_cuda():
 		self.size = size
 		self.blockdim = blockdim
 		self.griddim = None
+		self.multiProcessorCount = int(cuda.get_current_device().MULTIPROCESSOR_COUNT)
 
 		self.config_calculator(size, blockdim, stream)
 
@@ -224,7 +225,7 @@ class calculator_cuda():
 																	+self.OutVarType+'[:,:,:], '+self.VarType+'[:,:,:], '	+self.VarType+'[:,:,:], '	
 																	+self.VarType+', '			+self.VarType+', '			+self.VarType+')', fastmath = True)(step_pressure_values_noreturn_cuda),
 				'set_velocity_emitters':			cuda.jit('void('+self.OutVarType+'[:,:,:], '+self.VarType+'[:,:,:], '+self.VarType+'[:,:,:], '
-																	+self.VarType+'[:,:,:], '+self.VarType+')', fastmath = True)(step_pressure_values_noreturn_cuda)	
+																	+self.VarType+'[:,:,:], '+self.VarType+')', fastmath = True)(set_velocity_emitters_noreturn_cuda)	
 																	
 				}
 			
@@ -266,12 +267,12 @@ class calculator_cuda():
 					and cuda.cudadrv.devicearray.is_cuda_ndarray(emitters_frequency) and cuda.cudadrv.devicearray.is_cuda_ndarray(emitters_phase)), 'Arrays must be loaded in GPU device.'
 
 			self.config_calculator(size=(velocity_boundary.shape[0], velocity_boundary.shape[1], velocity_boundary.shape[2]), 
-						  blockdim=optimize_blockdim(velocity_boundary.shape[0], velocity_boundary.shape[1], velocity_boundary.shape[2]))
+						  blockdim=optimize_blockdim(self.multiProcessorCount, velocity_boundary.shape[0], velocity_boundary.shape[1], velocity_boundary.shape[2]))
 			
 			self.config['step_velocity_values'][self.griddim, self.blockdim, self.stream](velocity_boundary, emitters_amplitude, emitters_frequency, emitters_phase, time)
 
 		except Exception as e:
-			print(f'Error in utils.cuda.calculator.calculator_cuda.step_velocity_values: {e}')
+			print(f'Error in utils.cuda.calculator.calculator_cuda.set_velocity_emitters: {e}')
 
 	def step_velocity_values (self, velocity, v_b, pressure, beta, sigma, dt, ds, rho, axis):
 		try:
@@ -280,7 +281,7 @@ class calculator_cuda():
 					and cuda.cudadrv.devicearray.is_cuda_ndarray(sigma)), 'Arrays must be loaded in GPU device.'
 			assert int(axis) in [0, 1, 2], f'Axis {axis} not valid.'
 
-			self.config_calculator(size=(velocity.shape[0], velocity.shape[1], velocity.shape[2]), blockdim=optimize_blockdim(velocity.shape[0], velocity.shape[1], velocity.shape[2]))
+			self.config_calculator(size=(velocity.shape[0], velocity.shape[1], velocity.shape[2]), blockdim=optimize_blockdim(self.multiProcessorCount, velocity.shape[0], velocity.shape[1], velocity.shape[2]))
 			
 			self.config['step_velocity_values'][self.griddim, self.blockdim, self.stream](velocity, v_b, pressure, beta, sigma, dt, ds, rho, axis)
 
@@ -293,7 +294,7 @@ class calculator_cuda():
 					and cuda.cudadrv.devicearray.is_cuda_ndarray(vy) and cuda.cudadrv.devicearray.is_cuda_ndarray(vz)
 					and cuda.cudadrv.devicearray.is_cuda_ndarray(beta) and cuda.cudadrv.devicearray.is_cuda_ndarray(sigma)), 'Arrays must be loaded in GPU device.'
 			
-			self.config_calculator(size=(pressure.shape[0], pressure.shape[1], pressure.shape[2]), blockdim=optimize_blockdim(pressure.shape[0], pressure.shape[1], pressure.shape[2]))
+			self.config_calculator(size=(pressure.shape[0], pressure.shape[1], pressure.shape[2]), blockdim=optimize_blockdim(self.multiProcessorCount, pressure.shape[0], pressure.shape[1], pressure.shape[2]))
 			
 			self.config['step_pressure_values'][self.griddim, self.blockdim, self.stream](pressure, vx, vy, vz, beta, sigma, dt, ds, rho_csq)
 

@@ -62,6 +62,7 @@ class executor ():
         self.loader = None
         self.solver = None
         
+        self.multiProcessorCount = int(cuda.get_current_device().MULTIPROCESSOR_COUNT)
         self.blockdim = blockdim
         self.size = size
         self.griddim = None
@@ -266,6 +267,14 @@ class executor ():
     #
     #    except Exception as e:
     #        print(f'Error in utils.cuda.executor.executor.copy_auxiliar_variables: {e}')
+
+
+
+
+
+
+
+
 
     def preprocess_transducers (self, transducers_modifies_patterns = False):
         try:

@@ -26,8 +26,9 @@
 
       "units": [
         {
+          "normal":  [ 0, 0, 1 ], //"normal of the object"
           "location": [ 0, 0, 0 ], //"position"
-          "angle": [ 0, 0, 0 ] //"angle to rotate"
+          "orientation": [ 0, 0, 0 ] //"where the normal should point"
         }
       ]
 
@@ -41,8 +42,9 @@
 
       "units": [
         {
+          "normal": [ 0, 0, 1 ], //"normal of the object"
           "location": [ 0, 0, 0 ], //"position"
-          "angle": [ 0, 0, 0 ] //"angle to rotate"
+          "orientation": [ 0, 0, 0 ] //"where the normal should point"
         }
       ]
 

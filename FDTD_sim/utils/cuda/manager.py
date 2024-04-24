@@ -241,6 +241,7 @@ class manager_cuda():
 		self.blockdim = blockdim
 		self.griddim = None
 		self.stream = stream
+		self.multiProcessorCount = int(cuda.get_current_device().MULTIPROCESSOR_COUNT)
 		
 		self.config = None
 
@@ -260,17 +261,6 @@ class manager_cuda():
 		
 		self.geometry_field = None #beta in the paper
 		self.absorptivity = None #sigma in the paper
-		
-		self.transducers_pos_cuda = None
-		self.transducers_norm_cuda = None
-		self.transducers_radius = None
-		
-		self.emitters_pos = None
-		
-		self.receivers_pos = None
-				
-		self.mesh_pos = None
-		#self.mesh_pression = { 'Old': None, 'New': None }
         
 	def config_manager_functions (self):
 		try:
@@ -333,7 +323,7 @@ class manager_cuda():
 			
 			assert (type(geometry_points) == np.ndarray and type(absorption) == np.ndarray), 'Arrays must be defined as numpy array.'
 			
-			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(geometry_points.shape[0]))
+			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(self.multiProcessorCount, geometry_points.shape[0]))
 
 			self.config['add_absorption_object'][self.griddim, self.blockdim, self.stream](
 				geometry_points, absorption, effect)
@@ -349,7 +339,7 @@ class manager_cuda():
 			
 			assert (type(geometry_points) == np.ndarray and type(field) == np.ndarray), 'Arrays must be defined as numpy array.'
 			
-			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(geometry_points.shape[0]))
+			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(self.multiProcessorCount, geometry_points.shape[0]))
 
 			self.config['add_geometry_object'][self.griddim, self.blockdim, self.stream](
 				geometry_points, field, effect)
@@ -366,7 +356,7 @@ class manager_cuda():
 			assert (type(geometry_points) == np.ndarray and type(field) == np.ndarray), 'Arrays must be defined as numpy array.'
 			assert int(distance)>0, 'Distance must be positive.'
 			
-			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(geometry_points.shape[0]))
+			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(self.multiProcessorCount, geometry_points.shape[0]))
 
 			self.config['extend_geometry_nPoints'][self.griddim, self.blockdim, self.stream](
 				geometry_points, field, distance, effect)
@@ -384,7 +374,7 @@ class manager_cuda():
 			assert int(maxDist)>0, 'Distance must be positive.'
 			assert minValue >= 0 and maxValue > minValue, f'Max value {maxValue} and Min value {minValue} are not correctly chosen.'
 			
-			self.config_manager(size=(absorption.shape[0], absorption.shape[1], absorption.shape[2]), blockdim=optimize_blockdim(absorption.shape[0], absorption.shape[1], absorption.shape[2]))
+			self.config_manager(size=(absorption.shape[0], absorption.shape[1], absorption.shape[2]), blockdim=optimize_blockdim(self.multiProcessorCount, absorption.shape[0], absorption.shape[1], absorption.shape[2]))
 
 			self.config['PML_limit_volume'][self.griddim, self.blockdim, self.stream](
 				absorption, maxDist, maxValue, minValue)
@@ -400,7 +390,7 @@ class manager_cuda():
 					and type(emitters_frequency) == np.ndarray and type(emitters_phase) == np.ndarray
 					and type(amplitude) == np.ndarray and type(frequency) == np.ndarray and type(phase) == np.ndarray), 'Arrays must be defined as numpy array.'
 			
-			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(geometry_points.shape[0]))
+			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(self.multiProcessorCount, geometry_points.shape[0]))
 
 			self.config['set_point_as_emitter'][self.griddim, self.blockdim, self.stream](
 				emitters_amplitude, emitters_frequency, emitters_phase, geometry_points, amplitude, frequency, phase)
@@ -460,7 +450,7 @@ class manager_cuda():
 			
 			temporal = cuda.device_array((old.shape[0] + new.shape[0], new.shape[1]), dtype = self.new.dtype, stream = self.stream)
 
-			self.config_manager(size=(old.shape[0] + new.shape[0], old.shape[1]), blockdim=optimize_blockdim(old.shape[0] + new.shape[0], old.shape[1]))
+			self.config_manager(size=(old.shape[0] + new.shape[0], old.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, old.shape[0] + new.shape[0], old.shape[1]))
 
 			self.config['concatenate_'+vartype+'_arrays'][self.griddim, self.blockdim, self.stream](old, new, temporal)
 			
@@ -482,7 +472,7 @@ class manager_cuda():
 			
 			temporal = cuda.device_array((old.shape[0] + new.shape[0] - d_rows_to_remove.shape[0], new.shape[1]), dtype = self.new.dtype, stream = self.stream)
 
-			self.config_manager(size=(old.shape[0] + new.shape[0] - d_rows_to_remove.shape[0], d_rows_to_remove.shape[0]+1), blockdim=optimize_blockdim(old.shape[0] + new.shape[0] - d_rows_to_remove.shape[0], d_rows_to_remove.shape[0]+1))
+			self.config_manager(size=(old.shape[0] + new.shape[0] - d_rows_to_remove.shape[0], d_rows_to_remove.shape[0]+1), blockdim=optimize_blockdim(self.multiProcessorCount, old.shape[0] + new.shape[0] - d_rows_to_remove.shape[0], d_rows_to_remove.shape[0]+1))
 
 			self.config['concatenate_'+vartype+'_arrays_delete_rows'][self.griddim, self.blockdim, self.stream](old, new, d_rows_to_remove, temporal)
 			
@@ -503,7 +493,7 @@ class manager_cuda():
 								 old_old.shape[1] + new_new.shape[1]),
 								dtype = self.old_old.dtype, stream = self.stream)
 
-			self.config_manager(size=(temporal.shape[0], temporal.shape[1]), blockdim=optimize_blockdim(temporal.shape[0], temporal.shape[1]))
+			self.config_manager(size=(temporal.shape[0], temporal.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, temporal.shape[0], temporal.shape[1]))
 
 			self.config['concatenate_'+vartype+'_matrix'][self.griddim, self.blockdim, self.stream](
 				old_old, old_new, new_old, new_new, temporal)
@@ -528,7 +518,7 @@ class manager_cuda():
 								 old_old.shape[1] + new_new.shape[1] - d_rowsncols_to_remove.shape[0]),
 								dtype = self.old_old.dtype, stream = self.stream)
 
-			self.config_manager(size=(temporal.shape[0], temporal.shape[1]), blockdim=optimize_blockdim(temporal.shape[0], temporal.shape[1]))
+			self.config_manager(size=(temporal.shape[0], temporal.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, temporal.shape[0], temporal.shape[1]))
 
 			self.config['concatenate_'+vartype+'_matrix_delete_rowsncols'][self.griddim, self.blockdim, self.stream](
 				old_old, old_new, new_old, new_new, d_rowsncols_to_remove, temporal)
@@ -545,4 +535,4 @@ class manager_cuda():
 				var = None			
 
 		except Exception as e:
-			print(f'Error in utils.cpu.manager.manager_cpu.manually_fill_mesh: {e}')
+			print(f'Error in utils.cpu.manager.manager_cuda.erase_variable: {e}')

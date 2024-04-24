@@ -28,6 +28,7 @@ class loader_cuda():
 		self.size = size
 		self.blockdim = blockdim
 		self.griddim = None
+		self.multiProcessorCount = int(cuda.get_current_device().MULTIPROCESSOR_COUNT)
 
 		self.config_loader(size, blockdim, stream)
 
