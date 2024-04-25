@@ -37,12 +37,22 @@ def scale_noreturn_cuda (points, scale_factor, center):
 	if i<points.shape[0] and j<points.shape[1]:
 		points[i, j] = points[i, j] * scale_factor
 		cuda.atomic.add(points, (i, j), (1.0 - scale_factor)*center[j])
+		
+def mesh_to_grid_noreturn_cuda (points, discretization):
+	
+	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
+	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
+	
+	if i < points.shape[0] and j < points.shape[1] and k < points.shape[2]:
+		points[i, j, k] = round(points[i, j, k] / discretization)
+
 
 class stlReader_cuda():
 	'''
 	Configurate the calculator
 	'''
-	def __init__(self, path, unit_dict, triangle_multiplier, discretization, file_extension = '.stl', stream=None, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
+	def __init__(self, path, unit_dict, triangle_multiplier, discretization, grid_limits, file_extension = '.stl', stream=None, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
 
 		assert cuda.is_available(), 'Cuda is not available.'
 		assert stream is not None, 'Cuda not configured. Stream required.'
@@ -66,12 +76,13 @@ class stlReader_cuda():
 		self.unit_dict = unit_dict
 		self.triangle_multiplier = triangle_multiplier
 		self.discretization = discretization
+		self.grid_limits = grid_limits
 		self.mesh_volume = None
 		
 		self.auxiliar = {
 			
-			'rotate': None,			
-			'scale': None
+			'rotate': None,
+			'boolean_grid': None
 			
 			}
 
@@ -90,7 +101,8 @@ class stlReader_cuda():
 			self.config = {
 				'translate':			cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+'[:])', fastmath = True)(translate_noreturn_cuda),
 				'rotate':				cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+'[:,:], ' + self.VarType+'[:], ' + self.VarType+'[:,:])', fastmath = True)(rotate_noreturn_cuda),
-				'scale':				cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+', ' + self.VarType+'[:])', fastmath = True)(scale_noreturn_cuda)	
+				'scale':				cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+', ' + self.VarType+'[:])', fastmath = True)(scale_noreturn_cuda),
+				'mesh_to_grid':			cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+')', fastmath = True)(mesh_to_grid_noreturn_cuda)
 																	
 				}
 			
@@ -129,7 +141,51 @@ class stlReader_cuda():
 
 		except Exception as e:
 			print(f'Error in utils.cuda.stlReader.stlReader_cuda.read_file: {e}')
+			
+	def get_surface_points(self):
+		try:
+			
+			self.get_mesh_center()
+			
+			triangle_count = len(self.mesh_volume.triangles)
+			cloud = self.mesh_volume.sample_points_uniformly(number_of_points = int(triangle_count*self.triangle_multiplier) )
+			cloud = cloud.remove_duplicated_points()
+			cloud = np.asarray(cloud.points).astype(self.VarType)
+			#print(cloud.get_center())
+			self.mesh_volume = cuda.to_device(cloud, dtype = cloud.dtype)
+			
+			self.erase_variable(cloud)
+		
+		except Exception as e:
+			print(f'Error in utils.cuda.stlReader.stlReader_cuda.get_surface_points: {e}')
+			
+	def locate_mesh(self):
+		try:
+			
+			assert cuda.cudadrv.devicearray.is_cuda_ndarray(self.mesh_volume), 'Arrays must be loaded in GPU device.'
+			assert self.mesh_center is not None, 'Mesh center not calculated, make sure you are executing the functions in the correct order.'
+			
+			self.scale()
+			self.rotate()
+			self.translate()
 
+		except Exception as e:
+			print(f'Error in utils.cuda.stlReader.stlReader_cuda.locate_mesh: {e}')
+			
+	def mesh_to_grid(self):
+		try:
+			
+			assert cuda.cudadrv.devicearray.is_cuda_ndarray(self.mesh_volume), 'Arrays must be loaded in GPU device.'
+			assert self.mesh_center is not None, 'Mesh center not calculated, make sure you are executing the functions in the correct order.'
+			
+			self.config_manager(size = (self.mesh_volume.shape[0], self.mesh_volume.shape[1], self.mesh_volume.shape[2]),
+								blockdim = optimize_blockdim(self.multiProcessorCount, self.mesh_volume.shape[0], self.mesh_volume.shape[1], self.mesh_volume.shape[2]))
+
+			self.config['mesh_to_grid'][self.griddim, self.blockdim, self.stream](self.mesh_volume, self.discretization)
+
+		except Exception as e:
+			print(f'Error in utils.cuda.stlReader.stlReader_cuda.mesh_to_grid: {e}')
+			
 	def get_rotation_matrix (self, mesh_normal, mesh_center, where_to_point):
 		try:
 			
@@ -154,24 +210,7 @@ class stlReader_cuda():
 
 		except Exception as e:
 			print(f'Error in utils.cuda.stlReader.stlReader_cuda.get_rotation_matrix: {e}')
-			
-	def get_surface_points(self):
-		try:
-			
-			self.get_mesh_center()
-			
-			triangle_count = len(self.mesh_volume.triangles)
-			cloud = self.mesh_volume.sample_points_uniformly(number_of_points = int(triangle_count*self.triangle_multiplier) )
-			cloud = cloud.remove_duplicated_points()
-			cloud = np.asarray(cloud.points).astype(self.VarType)
-			#print(cloud.get_center())
-			self.mesh_volume = cuda.to_device(cloud, dtype = cloud.dtype)
-			
-			self.erase_variable(cloud)
-		
-		except Exception as e:
-			print(f'Error in utils.cuda.stlReader.stlReader_cuda.get_surface_points: {e}')
-			
+				
 	def get_mesh_center (self):
 		try:
 			
@@ -180,15 +219,20 @@ class stlReader_cuda():
 		except Exception as e:
 			print(f'Error in utils.cuda.stlReader.stlReader_cuda.get_mesh_center: {e}')
 			
-	def rotate (self, where_to_point):
+	def rotate (self):
 		try:
 			
-			self.get_rotation_matrix(self.unit_dict['normal'], self.center, where_to_point)
+			assert cuda.cudadrv.devicearray.is_cuda_ndarray(self.mesh_volume), 'Arrays must be loaded in GPU device.'
+			
+			self.get_rotation_matrix(self.unit_dict['normal'], self.center, self.unit_dict['orientation'])
 			self.auxiliar['rotate'] = cuda.to_device(np.zeros((self.mesh_volume.shape[0], self.mesh_volume.shape[1]), dtype = self.mesh_volume.dtype), stream = self.stream)
 			
 			self.config_manager(size=(self.mesh_volume.shape[0], self.mesh_volume.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, self.mesh_volume.shape[0], self.mesh_volume.shape[1]))
 
 			self.config['rotate'][self.griddim, self.blockdim, self.stream](self.mesh_volume, self.rotation_matrix, self.mesh_center, self.auxiliar['rotate'])
+			
+			self.mesh_volume = self.auxiliar['rotate']
+			self.erase_variable(self.auxiliar['rotate'])
 			
 		except Exception as e:
 			print(f'Error in utils.cuda.stlReader.stlReader_cuda.rotate: {e}')
@@ -196,13 +240,28 @@ class stlReader_cuda():
 	def translate(self):
 		try:
 			
+			assert cuda.cudadrv.devicearray.is_cuda_ndarray(self.mesh_volume), 'Arrays must be loaded in GPU device.'
+						
 			self.config_manager(size=(self.mesh_volume.shape[0], self.mesh_volume.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, self.mesh_volume.shape[0], self.mesh_volume.shape[1]))
 
-			self.config['rotate'][self.griddim, self.blockdim, self.stream]()
+			self.config['translate'][self.griddim, self.blockdim, self.stream](self.mesh_volume, self.unit_dict['location'])
 			
 		except Exception as e:
-			print(f'Error in utils.cuda.stlReader.stlReader_cuda.rotate: {e}')
+			print(f'Error in utils.cuda.stlReader.stlReader_cuda.translate: {e}')
 
+	def scale(self):
+		try:
+			
+			assert cuda.cudadrv.devicearray.is_cuda_ndarray(self.mesh_volume), 'Arrays must be loaded in GPU device.'
+			
+			if self.unit_dict['scale'] != 1.0:
+			
+				self.config_manager(size=(self.mesh_volume.shape[0], self.mesh_volume.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, self.mesh_volume.shape[0], self.mesh_volume.shape[1]))
+			
+				self.config['scale'][self.griddim, self.blockdim, self.stream](self.mesh_volume, self.unit_dict['scale'], self.mesh_center)
+			
+		except Exception as e:
+			print(f'Error in utils.cuda.stlReader.stlReader_cuda.scale: {e}')
 
 
 	def erase_variable (*vars_to_erase):

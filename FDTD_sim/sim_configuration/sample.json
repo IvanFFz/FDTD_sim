@@ -26,9 +26,10 @@
 
       "units": [
         {
-          "normal":  [ 0, 0, 1 ], //"normal of the object"
+          "normal": [ 0, 0, 1 ], //"normal of the object"
           "location": [ 0, 0, 0 ], //"position"
-          "orientation": [ 0, 0, 0 ] //"where the normal should point"
+          "orientation": [ 0, 0, 0 ], //"where the normal should point"
+          "scale": 1.0 //"scale of the object in terms of the scale of the 3D mesh"
         }
       ]
 
@@ -44,7 +45,8 @@
         {
           "normal": [ 0, 0, 1 ], //"normal of the object"
           "location": [ 0, 0, 0 ], //"position"
-          "orientation": [ 0, 0, 0 ] //"where the normal should point"
+          "orientation": [ 0, 0, 0 ], //"where the normal should point"
+          "scale": 1.0 //"scale of the object in terms of the scale of the 3D mesh"
         }
       ]
 
