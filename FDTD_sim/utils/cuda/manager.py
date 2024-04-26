@@ -199,7 +199,7 @@ def add_extended_geometry_nPoints_no_return_cuda (geometry_points, field, distan
 		for a in range(-distance, distance + 1):
 			for b in range(-distance, distance + 1):
 				for c in range(-distance, distance + 1):
-					if abs(a)+abs(b)+abs(c) >= distance:
+					if math.sqrt(a**2+b**2+c**2) >= float(distance):
 						cuda.atomic.min(field,(geometry_points[i, 0] + a, geometry_points[i, 1] + b, geometry_points[i, 2] + c), effect)
 
 #Initialize the limits of the simulation volume with PML method
@@ -223,9 +223,9 @@ def set_point_as_emitter_no_return_cuda (emitters_amplitude, emitters_frequency,
 	
 	if i<geometry_points.shape[0]:
 		
-		emitters_amplitude[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = amplitude[i]
-		emitters_frequency[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = frequency[i]
-		emitters_phase[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = phase[i]
+		emitters_amplitude[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = amplitude
+		emitters_frequency[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = frequency
+		emitters_phase[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = phase
 		
 class manager_cuda():
 	
@@ -282,7 +282,7 @@ class manager_cuda():
 				'add_extended_geometry_nPoints':					cuda.jit('void(int64[:,:], '+self.VarType+'[:,:,:], int64, '+self.VarType+')', fastmath = True)(add_extended_geometry_nPoints_no_return_cuda),
 				'PML_limit_volume':					 				cuda.jit('void('+self.VarType+'[:,:,:], int64, '+self.VarType+', '+self.VarType+')', fastmath = True)(PML_limit_volume_no_return_cuda),
 				'set_point_as_emitter':								cuda.jit('void('+self.VarType+'[:,:,:], '+self.VarType+'[:,:,:], '+self.VarType+'[:,:,:], int64[:,:], '
-																					+self.VarType+'[:], '+self.VarType+'[:], '+self.VarType+'[:])', fastmath = True)(set_point_as_emitter_no_return_cuda)
+																					+self.VarType+', '+self.VarType+', '+self.VarType+')', fastmath = True)(set_point_as_emitter_no_return_cuda)
 				}
 			
 		except Exception as e:
@@ -382,56 +382,46 @@ class manager_cuda():
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.PML_limit_volume: {e}')
 
-	def set_point_as_emitter(self, emitters_amplitude, emitters_frequency, emitters_phase, geometry_points, amplitude, frequency, phase):
+	def set_point_as_emitter(self, geometry_points, amplitude, frequency, phase):
 		
 		try:
 			
-			assert (type(geometry_points) == np.ndarray and type(emitters_amplitude) == np.ndarray
-					and type(emitters_frequency) == np.ndarray and type(emitters_phase) == np.ndarray
-					and type(amplitude) == np.ndarray and type(frequency) == np.ndarray and type(phase) == np.ndarray), 'Arrays must be defined as numpy array.'
+			assert (type(geometry_points) == np.ndarray), 'Arrays must be defined as numpy array.'
 			
 			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(self.multiProcessorCount, geometry_points.shape[0]))
 
 			self.config['set_point_as_emitter'][self.griddim, self.blockdim, self.stream](
-				emitters_amplitude, emitters_frequency, emitters_phase, geometry_points, amplitude, frequency, phase)
+				self.emitters_amplitude, self.emitters_frequency, self.emitters_phase, geometry_points, amplitude, frequency, phase)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.set_point_as_emitter: {e}')
 
-	def locate_geometry_object(self, geometry_points, max_distance, step_effect):
+	def locate_geometry_object(self, geometry_points, max_distance):
 		try:
-			assert (type(original_pos) == np.ndarray and type(original_norm) == np.ndarray
-					and type(final_pos) == np.ndarray and type(final_norm) == np.ndarray), 'Emitters must be defined as numpy array.'
 			
-			self.transducer_pos_cuda = cuda.to_device(transducer_pos, stream = self.stream)
-			self.transducer_norm_cuda = cuda.to_device(transducer_norm, stream = self.stream)
-			#All transducers have the same radius. Can be change to consider different transducers.
-			self.transducer_radius = transducer_radius
+			step_effect
+
 			
 		except Exception as e:
-			print(f'Error in utils.cuda.manager.manager_cuda.locate_transducer: {e}')
+			print(f'Error in utils.cuda.manager.manager_cuda.locate_geometry_object: {e}')
 			
 	def locate_absorption_region(self, geometry_points, effect):
 		try:
-			assert (type(original_pos) == np.ndarray and type(original_norm) == np.ndarray
-					and type(final_pos) == np.ndarray and type(final_norm) == np.ndarray), 'Emitters must be defined as numpy array.'
-			
-			self.transducer_pos_cuda = cuda.to_device(transducer_pos, stream = self.stream)
-			self.transducer_norm_cuda = cuda.to_device(transducer_norm, stream = self.stream)
-			#All transducers have the same radius. Can be change to consider different transducers.
-			self.transducer_radius = transducer_radius
+
+
+
 			
 		except Exception as e:
-			print(f'Error in utils.cuda.manager.manager_cuda.locate_transducer: {e}')
+			print(f'Error in utils.cuda.manager.manager_cuda.locate_absorption_region: {e}')
 
-	def locate_transducer(self, geometry_points, points_of_emission, max_distance, step_effect):
+	def locate_transducer(self, geometry_points, points_of_emission, amplitude, frequency, initial_phase, max_distance):
 		try:
 			
 			assert (cuda.cudadrv.devicearray.is_cuda_ndarray(geometry_points) and cuda.cudadrv.devicearray.is_cuda_ndarray(points_of_emission)), 'Arrays must be loaded in GPU device.'
 						
-			self.locate_geometry_object(geometry_points, max_distance, step_effect)
+			self.locate_geometry_object(geometry_points, max_distance)
 
-
+			self.set_point_as_emitter(points_of_emission, amplitude, frequency, initial_phase)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.locate_transducer: {e}')

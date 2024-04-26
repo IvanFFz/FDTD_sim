@@ -14,7 +14,8 @@
 
     "boundary": {
       "layer_thickness": 6,
-      "max_object_distance": 6
+      "max_object_distance": 6,
+      "grid_limits": [0.0, 10.0] //"En cm por ejemplo"
     }
 
   },
@@ -23,13 +24,18 @@
     {
       "model": "path",
       "zone_emission": "path",
+      "file_extension": ".stl",
+      "amplitude": 1.0, //Hay que ver en qué unidades
+      "frequency": 40000, //En Hz
+      "initial_phase":  0.0, //Creo que en rad
 
       "units": [
         {
           "normal": [ 0, 0, 1 ], //"normal of the object"
           "location": [ 0, 0, 0 ], //"position"
           "orientation": [ 0, 0, 0 ], //"where the normal should point"
-          "scale": 1.0 //"scale of the object in terms of the scale of the 3D mesh"
+          "scale": 1.0, //"scale of the object in terms of the scale of the 3D mesh"
+          "triangle_multiplier":  1.0 //"number of points for each triangle in the 3D mesh"
         }
       ]
 
@@ -40,13 +46,15 @@
   "objects": [
     {
       "model": "path",
+      "file_extension": ".stl",
 
       "units": [
         {
           "normal": [ 0, 0, 1 ], //"normal of the object"
           "location": [ 0, 0, 0 ], //"position"
           "orientation": [ 0, 0, 0 ], //"where the normal should point"
-          "scale": 1.0 //"scale of the object in terms of the scale of the 3D mesh"
+          "scale": 1.0, //"scale of the object in terms of the scale of the 3D mesh"
+          "triangle_multiplier": 1.0 //"number of points for each triangle in the 3D mesh"
         }
       ]
 

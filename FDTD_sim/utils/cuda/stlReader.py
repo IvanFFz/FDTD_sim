@@ -1,4 +1,4 @@
-from tkinter import Scale
+from tkinter import W, Scale
 import numpy as np, pandas as pd, open3d as o3d
 
 import numba, math, cmath, os, itertools
@@ -46,13 +46,112 @@ def mesh_to_grid_noreturn_cuda (points, discretization):
 	
 	if i < points.shape[0] and j < points.shape[1] and k < points.shape[2]:
 		points[i, j, k] = round(points[i, j, k] / discretization)
+		
+def check_int_ext_noreturn_cuda (points, grid_volume, axis, reversed_path, min_limit):
+	
+	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
+	
+	if axis == 0 and i < grid_volume.shape[1] and j < grid_volume.shape[2]:
+		
+		for k in range(1, grid_volume.shape[0], reversed_path):
+			for point in points:
+				
+				if int(point[0]) == min_limit + k and int(point[1]) == min_limit + i and int(point[2]) == min_limit + j:
+					
+					cuda.atomic.add(grid_volume, (k, i, j), 1)
+					
+				else:
+					
+					cuda.atomic.add(grid_volume, (k, i, j), grid_volume[k-reversed_path, i, j] - grid_volume[k, i, j])
+	
+	if axis == 1 and i < grid_volume.shape[0] and j < grid_volume.shape[2]:
+		
+		for k in range(1, grid_volume.shape[1], reversed_path):
+			for point in points:
 
+				if int(point[0]) == min_limit + i and int(point[1]) == min_limit + k and int(point[2]) == min_limit + j:
+					
+					cuda.atomic.add(grid_volume, (i, k, j), 1)
+					
+				else:
+					
+					cuda.atomic.add(grid_volume, (i, k, j), grid_volume[i, k-reversed_path, j] - grid_volume[i, k, j])
+
+	if axis == 2 and i < grid_volume.shape[0] and j < grid_volume.shape[1]:
+		
+		for k in range(1, grid_volume.shape[2], reversed_path):
+			for point in points:
+				
+				if int(point[0]) == min_limit + i and int(point[1]) == min_limit + j and int(point[2]) == min_limit + k:
+					
+					cuda.atomic.add(grid_volume, (i, j, k), 1)
+					
+				elif int(point[0]) == min_limit + i - reversed_path and int(point[1]) == min_limit + j - reversed_path and int(point[2]) == min_limit + k - reversed_path:
+					
+					cuda.atomic.add(grid_volume, (i, j, k), grid_volume[i, j, k-reversed_path] - grid_volume[i, j, k - 2*reversed_path])
+					
+				else:
+					
+					cuda.atomic.add(grid_volume, (i, j, k), grid_volume[i, j, k-reversed_path])
+					
+def add_check_int_ext_results_noreturn_cuda (results_grid, grid_volume):
+	
+	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
+	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
+	
+	if i < results_grid.shape[0] and j < results_grid.shape[1] and k < results_grid.shape[2]:
+		
+		cuda.atomic.add(results_grid, (i, j, k), grid_volume[i, j, k])
+		
+		cuda.atomic.compare_and_swap(grid_volume[i, j, k], 1, 0)
+		
+def compute_results_noreturn_cuda (results_grid, threshold):
+	
+	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
+	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
+	
+	if i < results_grid.shape[0] and j < results_grid.shape[1] and k < results_grid.shape[2]:
+		
+		if results_grid[i, j, k] >= threshold:
+			results_grid[i, j, k] = 1
+		else:
+			results_grid[i, j, k] = 0
+			
+def count_points_result_noreturn_cuda (results_grid, grid_min, grid_max, mesh_min, mesh_max, count):
+	
+	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
+	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
+	
+	if i < results_grid.shape[0] and j < results_grid.shape[1] and k < results_grid.shape[2]:
+		if min(i, j, k) + mesh_min >= grid_min and max(i, j, k) + mesh_max <= grid_max:
+			cuda.atomic.add(count, 0, 1)
+			cuda.atomic.compare_and_swap(results_grid[i, j, k], 1, count-1)
+		else:
+			results_grid[i, j, k] = -1
+			
+def results_to_list_noreturn_cuda (results_grid, geometry_points, mesh_min):
+	
+	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
+	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
+	
+	if i < results_grid.shape[0] and j < results_grid.shape[1] and k < results_grid.shape[2]:
+		if results_grid[i, j, k] != -1:
+			geometry_points[results_grid[i, j, k], 0] = mesh_min + i
+			geometry_points[results_grid[i, j, k], 1] = mesh_min + j
+			geometry_points[results_grid[i, j, k], 2] = mesh_min + k
+		
+		
 
 class stlReader_cuda():
 	'''
 	Configurate the calculator
 	'''
-	def __init__(self, path, unit_dict, triangle_multiplier, discretization, grid_limits, file_extension = '.stl', stream=None, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
+	def __init__(self, path, unit_dict, discretization, grid_limits, mesh_center = None, file_extension = '.stl', stream=None, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
 
 		assert cuda.is_available(), 'Cuda is not available.'
 		assert stream is not None, 'Cuda not configured. Stream required.'
@@ -74,15 +173,21 @@ class stlReader_cuda():
 		self.path = path
 		self.model_file = 'model' + file_extension
 		self.unit_dict = unit_dict
-		self.triangle_multiplier = triangle_multiplier
 		self.discretization = discretization
 		self.grid_limits = grid_limits
 		self.mesh_volume = None
+		self.mesh_center = mesh_center
+		self.results_grid = None
 		
 		self.auxiliar = {
 			
 			'rotate': None,
-			'boolean_grid': None
+			'boolean_grid': None,
+			'mesh_limits': {
+				'max': None,
+				'min': None
+				},
+			'grid_volume': None
 			
 			}
 
@@ -90,7 +195,6 @@ class stlReader_cuda():
 
 		self.config_stlReader_functions()
 		
-		self.load_configuration(path)
 		
 	'''
 	Implement configurations
@@ -99,10 +203,15 @@ class stlReader_cuda():
 	def config_stlReader_functions (self):
 		try:
 			self.config = {
-				'translate':			cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+'[:])', fastmath = True)(translate_noreturn_cuda),
-				'rotate':				cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+'[:,:], ' + self.VarType+'[:], ' + self.VarType+'[:,:])', fastmath = True)(rotate_noreturn_cuda),
-				'scale':				cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+', ' + self.VarType+'[:])', fastmath = True)(scale_noreturn_cuda),
-				'mesh_to_grid':			cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+')', fastmath = True)(mesh_to_grid_noreturn_cuda)
+				'translate':						cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+'[:])', fastmath = True)(translate_noreturn_cuda),
+				'rotate':							cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+'[:,:], ' + self.VarType+'[:], ' + self.VarType+'[:,:])', fastmath = True)(rotate_noreturn_cuda),
+				'scale':							cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+', ' + self.VarType+'[:])', fastmath = True)(scale_noreturn_cuda),
+				'mesh_to_grid':						cuda.jit('void('+self.VarType+'[:,:], ' + self.VarType+')', fastmath = True)(mesh_to_grid_noreturn_cuda),
+				'check_int_ext':					cuda.jit('void('+self.VarType+'[:,:], ' + 'int64[:,:], int64, int64, int64)', fastmath = True)(check_int_ext_noreturn_cuda),
+				'add_check_int_ext_results':		cuda.jit('void(int64[:,:], int64[:,:])', fastmath = True)(add_check_int_ext_results_noreturn_cuda),
+				'compute_results':					cuda.jit('void(int64[:,:], int64)', fastmath = True)(compute_results_noreturn_cuda),
+				'count_points_result':				cuda.jit('void(int64[:,:], int64, int64, int64, int64, int64)', fastmath = True)(count_points_result_noreturn_cuda),
+				'results_to_list':					cuda.jit('void(int64[:,:], int64[:,:], int64)', fastmath = True)(results_to_list_noreturn_cuda)
 																	
 				}
 			
@@ -148,9 +257,13 @@ class stlReader_cuda():
 			self.get_mesh_center()
 			
 			triangle_count = len(self.mesh_volume.triangles)
-			cloud = self.mesh_volume.sample_points_uniformly(number_of_points = int(triangle_count*self.triangle_multiplier) )
+			cloud = self.mesh_volume.sample_points_uniformly(number_of_points = int(triangle_count*self.unit_dict['triangle_multiplier']) )
 			cloud = cloud.remove_duplicated_points()
 			cloud = np.asarray(cloud.points).astype(self.VarType)
+			self.auxiliar['mesh_limits'] = {
+				'max' : np.ceil(np.max(cloud) / self.discretization) + 10,
+				'min' : np.ceil(np.min(cloud) / self.discretization) - 10
+				}
 			#print(cloud.get_center())
 			self.mesh_volume = cuda.to_device(cloud, dtype = cloud.dtype)
 			
@@ -182,10 +295,116 @@ class stlReader_cuda():
 								blockdim = optimize_blockdim(self.multiProcessorCount, self.mesh_volume.shape[0], self.mesh_volume.shape[1], self.mesh_volume.shape[2]))
 
 			self.config['mesh_to_grid'][self.griddim, self.blockdim, self.stream](self.mesh_volume, self.discretization)
-
+	
 		except Exception as e:
 			print(f'Error in utils.cuda.stlReader.stlReader_cuda.mesh_to_grid: {e}')
 			
+	def check_int_ext(self, axis, reversed_path = False):
+		try:
+			
+			assert int(axis) in [0, 1, 2], f'{axis} axis is not valid.'
+			
+			if self.auxiliar['grid_volume'] is None:
+				self.auxiliar['grid_volume'] = cuda.to_device(np.zeros((self.auxiliar['mesh_limits']['max'] - self.auxiliar['mesh_limits']['min'] + 1, self.auxiliar['mesh_limits']['max'] - self.auxiliar['mesh_limits']['min'] + 1,
+																		self.auxiliar['mesh_limits']['max'] - self.auxiliar['mesh_limits']['min'] + 1), dtype = np.int64))
+			
+			if self.results_grid is None:	
+				self.results_grid = cuda.to_device(np.zeros((self.auxiliar['mesh_limits']['max'] - self.auxiliar['mesh_limits']['min'] + 1, self.auxiliar['mesh_limits']['max'] - self.auxiliar['mesh_limits']['min'] + 1,
+															 self.auxiliar['mesh_limits']['max'] - self.auxiliar['mesh_limits']['min'] + 1), dtype = np.int64))
+			
+			if reversed_path:
+				reversed_path = -1
+				
+			else:
+				reversed_path = 1
+				
+			if int(axis) == 0:
+				
+				self.config_manager(size = (self.mesh_volume.shape[1], self.mesh_volume.shape[2]),
+									blockdim = optimize_blockdim(self.multiProcessorCount, self.mesh_volume.shape[1], self.mesh_volume.shape[2]))
+			elif int(axis) == 1:
+				
+				self.config_manager(size = (self.mesh_volume.shape[0], self.mesh_volume.shape[2]),
+									blockdim = optimize_blockdim(self.multiProcessorCount, self.mesh_volume.shape[0], self.mesh_volume.shape[2]))
+				
+			elif int(axis) == 2:
+				
+				self.config_manager(size = (self.mesh_volume.shape[0], self.mesh_volume.shape[1]),
+									blockdim = optimize_blockdim(self.multiProcessorCount, self.mesh_volume.shape[0], self.mesh_volume.shape[1]))
+				
+
+			self.config['check_int_ext'][self.griddim, self.blockdim, self.stream](self.mesh_volume, self.auxiliar['grid_volume'], axis, reversed_path, self.auxiliar['mesh_limits']['min'])
+			
+		except Exception as e:
+			print(f'Error in utils.cuda.stlReader.stlReader_cuda.check_int_ext: {e}')
+			
+	def add_check_int_ext_results(self):
+		try:
+			
+			self.config_manager(size = (self.mesh_volume.shape[0], self.mesh_volume.shape[1], self.mesh_volume.shape[2]),
+									blockdim = optimize_blockdim(self.multiProcessorCount, self.mesh_volume.shape[0], self.mesh_volume.shape[1], self.mesh_volume.shape[2]))
+			
+
+			self.config['add_check_int_ext_results'][self.griddim, self.blockdim, self.stream](self.results_grid, self.auxiliar['grid_volume'])
+			
+		except Exception as e:
+			print(f'Error in utils.cuda.stlReader.stlReader_cuda.add_check_int_ext_results: {e}')
+			
+	def compute_results (self, threshold = 4):
+		try:
+			
+			self.config_manager(size = (self.results_grid.shape[0], self.results_grid.shape[1], self.results_grid.shape[2]),
+									blockdim = optimize_blockdim(self.multiProcessorCount, self.results_grid.shape[0], self.results_grid.shape[1], self.results_grid.shape[2]))
+
+			self.config['compute_results'][self.griddim, self.blockdim, self.stream](self.results_grid, threshold)
+			
+			
+			count = 0
+			
+			self.config_manager(size = (self.results_grid.shape[0], self.results_grid.shape[1], self.results_grid.shape[2]),
+									blockdim = optimize_blockdim(self.multiProcessorCount, self.results_grid.shape[0], self.results_grid.shape[1], self.results_grid.shape[2]))
+
+			self.config['count_points_result'][self.griddim, self.blockdim, self.stream](self.results_grid, self.grid_limits['min'], self.grid_limits['max'],
+																						self.auxiliar['mesh_limits']['min'], self.auxiliar['mesh_limits']['max'], count)
+			
+			
+			geometry_points = cuda.device_array((count, 3), dtype = np.int64, stream = self.stream)
+			
+			self.config_manager(size = (self.results_grid.shape[0], self.results_grid.shape[1], self.results_grid.shape[2]),
+									blockdim = optimize_blockdim(self.multiProcessorCount, self.results_grid.shape[0], self.results_grid.shape[1], self.results_grid.shape[2]))
+
+			self.config['results_to_list'][self.griddim, self.blockdim, self.stream](self.results_grid, geometry_points, self.auxiliar['mesh_limits']['min'])
+			
+			return geometry_points
+
+		except Exception as e:
+			print(f'Error in utils.cuda.stlReader.stlReader_cuda.compute_results: {e}')
+		
+			
+	def extract_object(self, threshold = 4):
+		try:
+			self.read_file()
+			
+			self.get_surface_points()
+			
+			self.locate_mesh()
+			
+			self.mesh_to_grid()
+			
+			for axis in range(3):
+				self.check_int_ext(axis)
+				self.add_check_int_ext_results()
+				
+				self.check_int_ext(axis, reversed_path=True)
+				self.add_check_int_ext_results()
+			
+			return self.compute_results(threshold)
+
+		except Exception as e:
+			print(f'Error in utils.cuda.stlReader.stlReader_cuda.extract_object: {e}')
+
+
+
 	def get_rotation_matrix (self, mesh_normal, mesh_center, where_to_point):
 		try:
 			
@@ -214,7 +433,8 @@ class stlReader_cuda():
 	def get_mesh_center (self):
 		try:
 			
-			self.mesh_center = self.mesh_volume.get_center()
+			if self.mesh_center is None:
+				self.mesh_center = self.mesh_volume.get_center()
 
 		except Exception as e:
 			print(f'Error in utils.cuda.stlReader.stlReader_cuda.get_mesh_center: {e}')

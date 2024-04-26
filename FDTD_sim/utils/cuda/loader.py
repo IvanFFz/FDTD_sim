@@ -3,6 +3,7 @@ import numpy as np, pandas as pd
 import numba, math, cmath, os
 from numba import float32, float64, void, cuda
 from .calculator import optimize_blockdim
+from stlReader import stlReader_cuda as stl_reader
 
 
 
@@ -12,7 +13,7 @@ class loader_cuda():
 	'''
 	Configurate the calculator
 	'''
-	def __init__(self, path, print_config = False, stream=None, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
+	def __init__(self, path, manager, grid_limits, print_config = False, stream=None, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
 
 		assert cuda.is_available(), 'Cuda is not available.'
 		assert stream is not None, 'Cuda not configured. Stream required.'
@@ -29,6 +30,10 @@ class loader_cuda():
 		self.blockdim = blockdim
 		self.griddim = None
 		self.multiProcessorCount = int(cuda.get_current_device().MULTIPROCESSOR_COUNT)
+				
+		self.manager = manager
+		self.grid_limits = grid_limits
+		self.emitter_center = None
 
 		self.config_loader(size, blockdim, stream)
 
@@ -103,14 +108,26 @@ class loader_cuda():
 			
 			for transducer in self.configuration['transducers']:
 				for n_unit in transducer['units']:
-					self.load_emitter(transducer['model'], transducer['zone_emission'], n_unit['location'], n_unit['angle'])
+					self.load_emitter(transducer['model'], transducer['zone_emission'], transducer['file_extension'], n_unit)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.loader.loader_cuda.load_transducers: {e}')
 	
-	def load_emitter(self, path, zone_emission, location, angle):
+	def load_emitter(self, path, zone_emission, file_extension, dict_unit):
 		try:
-			print('Work in progress')
+			
+			reader = stl_reader(path, dict_unit, self.configuration['grid']['ds'], self.grid_limits, file_extension= file_extension,
+								stream=self.stream, var_type=self.VarType, out_var_type=self.OutVarType)
+			geometry_points = reader.extract_object()
+			mesh_center = reader.mesh_center
+			
+			reader = stl_reader(path, dict_unit, self.configuration['grid']['ds'], self.grid_limits, mesh_center=mesh_center, file_extension = file_extension,
+								stream=self.stream, var_type=self.VarType, out_var_type=self.OutVarType)
+			emission_points = reader.extract_object()
+			
+			self.manager.locate_transducer(geometry_points, emission_points, self.configuration['boundary']['max_object_distance'])
+			
+			self.erase_variable(reader, geometry_points, emission_points, mesh_center)			
 
 		except Exception as e:
 			print(f'Error in utils.cuda.loader.loader_cuda.load_emitter: {e}')
@@ -120,15 +137,31 @@ class loader_cuda():
 			
 			for obj in self.configuration['objects']:
 				for n_unit in obj['units']:
-					self.load_solid(obj['model'], obj['zone_emission'], n_unit['location'], n_unit['angle'])
+					self.load_solid(obj['model'], obj['file_extension'], n_unit)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.loader.loader_cuda.load_objects: {e}')
 	
-	def load_solid(self, path, zone_emission, location, angle):
+	def load_solid(self,  path, file_extension, dict_unit):
 		try:
-			print('Work in progress')
+			reader = stl_reader(path, dict_unit, self.configuration['grid']['ds'], self.grid_limits, file_extension= file_extension,
+								stream=self.stream, var_type=self.VarType, out_var_type=self.OutVarType)
+			geometry_points = reader.extract_object()
+			
+			self.manager.locate_geometry_object(geometry_points, self.configuration['boundary']['max_object_distance'])
+			
+			self.erase_variable(reader, geometry_points)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.loader.loader_cuda.load_solid: {e}')
 	
+
+
+	def erase_variable (*vars_to_erase):
+		try:
+			
+			for var in vars_to_erase:
+				var = None			
+
+		except Exception as e:
+			print(f'Error in utils.cpu.stlReader.stlReader_cuda.erase_variable: {e}')

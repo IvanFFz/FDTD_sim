@@ -158,7 +158,7 @@ class executor ():
         except Exception as e:
             print(f'Error in utils.cuda.executor.executor.config_geometries: {e}')
             
-    def config_simulation(self, dt, ds, nPoints, density, c):
+    def config_simulation(self, dt, ds, nPoints, density, c, grid_limits):
         try:
             
             self.dt = dt
@@ -166,6 +166,7 @@ class executor ():
             self.nPoints = nPoints
             self.density = density
             self.c = c
+            self.grid_limits = grid_limits
                         
         except Exception as e:
             print(f'Error in utils.cuda.executor.executor.config_simulation: {e}')
@@ -181,7 +182,9 @@ class executor ():
                                    self.loader.configuration['grid']['sim_parameters']['ds'],
                                    self.loader.configuration['grid']['sim_parameters']['nPoints'],
                                    self.loader.configuration['grid']['sim_parameters']['density'],
-                                   self.loader.configuration['grid']['sim_parameters']['c'])
+                                   self.loader.configuration['grid']['sim_parameters']['c'],
+                                   self.loader.configuration['grid']['boundary']['grid_limits'])
+            
             self.config_geometries(self.loader.configuration['grid']['boundary']['layer_thickness'],
                                    self.loader.configuration['grid']['boundary']['max_object_distance'],
                                    self.loader.configuration['grid']['sim_parameters']['airAbsorptivity'])
