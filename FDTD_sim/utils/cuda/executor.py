@@ -157,7 +157,7 @@ class executor ():
         except Exception as e:
             print(f'Error in utils.cuda.executor.executor.config_geometries: {e}')
             
-    def config_simulation(self, dt, ds, nPoints, density, c, grid_limits, times):
+    def config_simulation(self, dt, ds, nPoints, density, c, grid_limits, times, ratio_times):
         try:
             
             self.dt = dt
@@ -166,7 +166,8 @@ class executor ():
             self.density = density
             self.c = c
             self.grid_limits = [grid_limits, grid_limits + ds*(nPoints-1)]
-            self.times = times
+            self.key_times = times
+            self.ratio_times = ratio_times
                         
         except Exception as e:
             print(f'Error in utils.cuda.executor.executor.config_simulation: {e}')
@@ -184,7 +185,8 @@ class executor ():
                                    self.loader.configuration['grid']['sim_parameters']['density'],
                                    self.loader.configuration['grid']['sim_parameters']['c'],
                                    self.loader.configuration['grid']['boundary']['grid_limits_min'],
-                                   self.loader.configuration['times'])
+                                   self.loader.configuration['times'],
+                                   self.loader.configuration['ratio_sim_plot_times'])
             
             self.config_geometries(self.loader.configuration['grid']['boundary']['layer_thickness'],
                                    self.loader.configuration['grid']['boundary']['max_object_distance'],
@@ -199,7 +201,7 @@ class executor ():
             plotter_configuration = self.loader.load_plotter_configuration()
             if plotter_configuration is not None:
                 self.plotter = plotter(plotter_configuration['mode'], plotter_configuration['region'], plotter_configuration['save_video'],plotter_configuration['value_to_plot'],
-                                       self.ds, self.nPoints, self.grid_limits, plotter_configuration['ready_to_plot'], 
+                                       self.ds, self.dt, self.nPoints, self.grid_limits, plotter_configuration['ready_to_plot'], 
                                        stream = self.stream, var_type=self.VarType, out_var_type = self.OutVarType, blockdim = self.blockdim)
 
             self.init_grid()
@@ -273,7 +275,7 @@ class executor ():
     def execute(self):
         try:
             
-            while self.time <= self.times['thermalization']:
+            while self.time <= self.key_times['thermalization']:
                 
                 self.simulation_step()
                 
@@ -281,17 +283,17 @@ class executor ():
                 
             recording = False
                 
-            while self.time - self.times['thermalization'] <= self.times['simulation']:
+            while self.time - self.key_times['thermalization'] <= self.key_times['simulation']:
                 
                 self.simulation_step()
                 
-                if self.time - self.times['thermalization'] >= self.times['record'][0] and self.time -self.times['thermalization'] <= self.times['record'][1]:
+                if self.time - self.key_times['thermalization'] >= self.key_times['record'][0] and self.time - self.key_times['thermalization'] <= self.key_times['record'][1]:
                     
                     if not recording:
                         recording = True
                         self.plotter.switch_ready_to_plot()
                         
-                    self.plotter.record(self.manager.pressure)
+                    self.plotter.record(self.manager.pressure, self.time - self.key_times['thermalization'] - self.key_times['record'][0], self.ratio_times)
                     
                 else:
                     

@@ -121,7 +121,7 @@ class loader_cuda():
 			geometry_points = reader.extract_object()
 			mesh_center = reader.mesh_center
 			
-			reader = stl_reader(path, dict_unit, self.configuration['grid']['ds'], self.grid_limits, mesh_center=mesh_center, file_extension = file_extension,
+			reader = stl_reader(zone_emission, dict_unit, self.configuration['grid']['ds'], self.grid_limits, mesh_center=mesh_center, file_extension = file_extension,
 								stream=self.stream, var_type=self.VarType, out_var_type=self.OutVarType)
 			emission_points = reader.extract_object()
 			

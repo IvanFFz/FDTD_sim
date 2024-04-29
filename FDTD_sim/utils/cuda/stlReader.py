@@ -54,47 +54,53 @@ def check_int_ext_noreturn_cuda (points, grid_volume, axis, reversed_path, min_l
 	
 	if axis == 0 and i < grid_volume.shape[1] and j < grid_volume.shape[2]:
 		
-		for k in range(1, grid_volume.shape[0], reversed_path):
+		for k in range(abs(min(1, reversed_path*grid_volume.shape[0] + 1)), max(reversed_path*grid_volume.shape[0], 0), reversed_path):
 			for point in points:
 				
 				if int(point[0]) == min_limit + k and int(point[1]) == min_limit + i and int(point[2]) == min_limit + j:
 					
-					cuda.atomic.add(grid_volume, (k, i, j), 1)
-					
-				else:
-					
-					cuda.atomic.add(grid_volume, (k, i, j), grid_volume[k-reversed_path, i, j] - grid_volume[k, i, j])
+					if grid_volume[k-reversed_path, i, j] == 0 or grid_volume[k-reversed_path, i, j] == 1:
+						cuda.atomic.compare_and_swap(grid_volume[k, i, j], 0, 1)
+						
+					elif grid_volume[k-reversed_path, i, j] == -1:
+						cuda.atomic.compare_and_swap(grid_volume[k, i, j], 0, -1)
+				
+			if grid_volume[k-reversed_path, i, j] != 0:
+				cuda.atomic.compare_and_swap(grid_volume[k, i, j], 0, int(0.5 * ( grid_volume[k-reversed_path, i, j] + 1 )) )
 	
 	if axis == 1 and i < grid_volume.shape[0] and j < grid_volume.shape[2]:
 		
-		for k in range(1, grid_volume.shape[1], reversed_path):
+		for k in range(abs(min(1, reversed_path*grid_volume.shape[0] + 1)), abs(max(reversed_path*grid_volume.shape[0], 0)), reversed_path):
 			for point in points:
 
 				if int(point[0]) == min_limit + i and int(point[1]) == min_limit + k and int(point[2]) == min_limit + j:
 					
-					cuda.atomic.add(grid_volume, (i, k, j), 1)
-					
-				else:
-					
-					cuda.atomic.add(grid_volume, (i, k, j), grid_volume[i, k-reversed_path, j] - grid_volume[i, k, j])
+					if grid_volume[i, k-reversed_path, j] == 0 or grid_volume[i, k-reversed_path, j] == 1:
+						cuda.atomic.compare_and_swap(grid_volume[i, k, j], 0, 1)
+						
+					elif grid_volume[i, k-reversed_path, j] == -1:
+						cuda.atomic.compare_and_swap(grid_volume[i, k, j], 0, -1)
+			
+			if grid_volume[i, k-reversed_path, j] != 0:
+				cuda.atomic.compare_and_swap(grid_volume[i, k, j], 0, int(0.5 * ( grid_volume[i, k-reversed_path, j] + 1 )) )
+				
 
 	if axis == 2 and i < grid_volume.shape[0] and j < grid_volume.shape[1]:
 		
-		for k in range(1, grid_volume.shape[2], reversed_path):
+		for k in range(abs(min(1, reversed_path*grid_volume.shape[0] + 1)), abs(max(reversed_path*grid_volume.shape[0], 0)), reversed_path):
 			for point in points:
 				
 				if int(point[0]) == min_limit + i and int(point[1]) == min_limit + j and int(point[2]) == min_limit + k:
-					
-					cuda.atomic.add(grid_volume, (i, j, k), 1)
-					
-				elif int(point[0]) == min_limit + i - reversed_path and int(point[1]) == min_limit + j - reversed_path and int(point[2]) == min_limit + k - reversed_path:
-					
-					cuda.atomic.add(grid_volume, (i, j, k), grid_volume[i, j, k-reversed_path] - grid_volume[i, j, k - 2*reversed_path])
-					
-				else:
-					
-					cuda.atomic.add(grid_volume, (i, j, k), grid_volume[i, j, k-reversed_path])
-					
+										
+					if grid_volume[i, j, k-reversed_path] == 0 or grid_volume[i, j, k-reversed_path] == 1:
+						cuda.atomic.compare_and_swap(grid_volume[i, j, k], 0, 1)
+						
+					elif grid_volume[i, j, k-reversed_path] == -1:
+						cuda.atomic.compare_and_swap(grid_volume[i, j, k], 0, -1)
+											
+			if grid_volume[i, j, k-reversed_path] != 0:
+				cuda.atomic.compare_and_swap(grid_volume[i, j, k], 0, int(0.5 * ( grid_volume[i, j, k-reversed_path] + 1 )) )
+										
 def add_check_int_ext_results_noreturn_cuda (results_grid, grid_volume):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
@@ -103,9 +109,10 @@ def add_check_int_ext_results_noreturn_cuda (results_grid, grid_volume):
 	
 	if i < results_grid.shape[0] and j < results_grid.shape[1] and k < results_grid.shape[2]:
 		
-		cuda.atomic.add(results_grid, (i, j, k), grid_volume[i, j, k])
+		cuda.atomic.add(results_grid, (i, j, k), abs(grid_volume[i, j, k]) )
 		
 		cuda.atomic.compare_and_swap(grid_volume[i, j, k], 1, 0)
+		cuda.atomic.compare_and_swap(grid_volume[i, j, k], -1, 0)
 		
 def compute_results_noreturn_cuda (results_grid, threshold):
 	

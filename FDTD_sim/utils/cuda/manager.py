@@ -341,8 +341,7 @@ class manager_cuda():
 			
 			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(self.multiProcessorCount, geometry_points.shape[0]))
 
-			self.config['add_geometry_object'][self.griddim, self.blockdim, self.stream](
-				geometry_points, field, effect)
+			self.config['add_geometry_object'][self.griddim, self.blockdim, self.stream](geometry_points, field, effect)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.add_geometry_object: {e}')

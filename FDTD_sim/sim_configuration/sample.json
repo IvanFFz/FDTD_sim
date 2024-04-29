@@ -89,7 +89,9 @@
       "fps": 24,
       "video_quality": [ 1024, 1080 ]
 
-    }
+    },
+
+    "ratio_sim_plot_times": 0.1 //Ratio "time in simulation" to "time between frames in plot".
 
 
   }

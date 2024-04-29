@@ -1,6 +1,6 @@
 from matplotlib import pyplot as plt
 from numba import cuda
-import numpy as np, cmath, os, cv2
+import numpy as np, math, cmath, os, cv2
 from .calculator import optimize_blockdim
 
 def extract_data_plane_noreturn_cuda(data, field, axis, value, amp_or_phase):
@@ -25,7 +25,7 @@ class plotter():
 	'''
 	Configurate the plotter
 	'''
-	def __init__(self, mode, region, save_video, value_to_plot, ds, nPoints, grid_limits, ready_to_plot=False, stream=None, var_type='float64', out_var_type = 'complex128', size = None, blockdim=(16, 16)):
+	def __init__(self, mode, region, save_video, value_to_plot, ds, dt, nPoints, grid_limits, ready_to_plot=False, stream=None, var_type='float64', out_var_type = 'complex128', size = None, blockdim=(16, 16)):
 
 		assert cuda.is_available(), 'Cuda is not available.'
 		assert stream is not None, 'Cuda not configured. Stream required.'
@@ -59,7 +59,7 @@ class plotter():
 			self.video_name = save_video['video_name']
 			self.path_to_save = save_video['path_to_save']
 			assert os.path.exists(self.path_to_save), f'Path {self.path_to_save} not valid.'
-			self.fps = save_video['fps']
+			self.fps = min(save_video['fps'], math.floor(1.0/dt))
 			self.video_quality = save_video['video_quality']
 			
 			self.plot_name = self.video_name.split('.')[0] + '\n' + mode + ' mode.'
@@ -81,7 +81,9 @@ class plotter():
 		else:
 			self.video_name = None
 			
-				
+										
+		self.dt = dt
+
 		self.data = None
 		self.X, self.Y = np.meshgrid(x_pos, y_pos, indexing = 'ij')
 		
@@ -219,13 +221,17 @@ class plotter():
 		except Exception as e:
 			print(f'Error in utils.cuda.plotter.plotter.finish_saving_video: {e}')
 			
-	def record(self, input_field):
+	def record(self, input_field, time, ratio_times):
 		try:
 			
-			self.extract_data(input_field)
+			if self.is_frame(time, ratio_times):
+				self.extract_data(input_field)
 			
-			self.plot_plane()
-			self.save_to_video()
+				self.plot_plane()
+				self.save_to_video()
+				
+			else:
+				pass
 						
 		except Exception as e:
 			print(f'Error in utils.cuda.plotter.plotter.finish_saving_video: {e}')
@@ -238,6 +244,22 @@ class plotter():
 			
 		except Exception as e:
 			print(f'Error in utils.cuda.plotter.plotter.finish_saving_video: {e}')
+			
+	def is_frame(self, time, ratio_times):
+		try:
+			
+			in_ratio = ratio_times*time - math.floor(ratio_times*time)
+			eq_to_frame = 1.0/self.fps
+
+			for i in range(self.fps):
+				if in_ratio > i*eq_to_frame - self.dt and in_ratio < i*eq_to_frame + self.dt:
+					return True
+				
+			return False
+			
+		except Exception as e:
+			print(f'Error in utils.cuda.plotter.plotter.finish_saving_video: {e}')
+
 			
 	def erase_variable (*vars_to_erase):
 		try:
