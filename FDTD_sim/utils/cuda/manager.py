@@ -399,8 +399,12 @@ class manager_cuda():
 	def locate_geometry_object(self, geometry_points, max_distance):
 		try:
 			
-			step_effect
-
+			self.add_geometry_object(geometry_points, self.geometry_field, 0)
+			
+			if max_distance>0:
+				for i in range(1, max_distance):
+				
+					self.extend_geometry_nPoints(geometry_points, self.geometry_field, i, i/max_distance)
 			
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.locate_geometry_object: {e}')
@@ -408,8 +412,7 @@ class manager_cuda():
 	def locate_absorption_region(self, geometry_points, effect):
 		try:
 
-
-
+			print('Not used by the moment. Work in progress.')
 			
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.locate_absorption_region: {e}')

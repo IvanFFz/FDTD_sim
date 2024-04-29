@@ -11,7 +11,7 @@ from stlReader import stlReader_cuda as stl_reader
 
 class loader_cuda():
 	'''
-	Configurate the calculator
+	Configurate the loader
 	'''
 	def __init__(self, path, manager, grid_limits, print_config = False, stream=None, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
 
@@ -142,7 +142,7 @@ class loader_cuda():
 		except Exception as e:
 			print(f'Error in utils.cuda.loader.loader_cuda.load_objects: {e}')
 	
-	def load_solid(self,  path, file_extension, dict_unit):
+	def load_solid(self, path, file_extension, dict_unit):
 		try:
 			reader = stl_reader(path, dict_unit, self.configuration['grid']['ds'], self.grid_limits, file_extension= file_extension,
 								stream=self.stream, var_type=self.VarType, out_var_type=self.OutVarType)
@@ -155,7 +155,21 @@ class loader_cuda():
 		except Exception as e:
 			print(f'Error in utils.cuda.loader.loader_cuda.load_solid: {e}')
 	
+	def load_plotter_configuration (self):
+		try:
+			
+			mode =self.configuration['plot']['mode']
+		
+			if mode == "plane":
 
+				return self.configuration['plot']
+			
+			else:
+				print(f'Mode {mode} not implemented. Simulation will not be plotted.')
+				return None				
+
+		except Exception as e:
+			print(f'Error in utils.cuda.loader.loader_cuda.load_solid: {e}')
 
 	def erase_variable (*vars_to_erase):
 		try:
