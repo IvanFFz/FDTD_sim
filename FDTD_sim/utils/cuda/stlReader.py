@@ -47,7 +47,7 @@ def mesh_to_grid_noreturn_cuda (points, discretization):
 	if i < points.shape[0] and j < points.shape[1] and k < points.shape[2]:
 		points[i, j, k] = round(points[i, j, k] / discretization)
 		
-def check_int_ext_noreturn_cuda (points, grid_volume, axis, reversed_path, min_limit):
+def check_int_ext_noreturn_cuda (surface_points, grid_volume, axis, reversed_path, min_limit):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
@@ -55,15 +55,17 @@ def check_int_ext_noreturn_cuda (points, grid_volume, axis, reversed_path, min_l
 	if axis == 0 and i < grid_volume.shape[1] and j < grid_volume.shape[2]:
 		
 		for k in range(abs(min(1, reversed_path*grid_volume.shape[0] + 1)), max(reversed_path*grid_volume.shape[0], 0), reversed_path):
-			for point in points:
+			for point in range(surface_points.shape[0]):
 				
-				if int(point[0]) == min_limit + k and int(point[1]) == min_limit + i and int(point[2]) == min_limit + j:
+				if int(surface_points[point, 0]) == min_limit + k and int(surface_points[point, 1]) == min_limit + i and int(surface_points[point, 2]) == min_limit + j:
 					
 					if grid_volume[k-reversed_path, i, j] == 0 or grid_volume[k-reversed_path, i, j] == 1:
 						cuda.atomic.compare_and_swap(grid_volume[k, i, j], 0, 1)
 						
 					elif grid_volume[k-reversed_path, i, j] == -1:
 						cuda.atomic.compare_and_swap(grid_volume[k, i, j], 0, -1)
+						
+					break
 				
 			if grid_volume[k-reversed_path, i, j] != 0:
 				cuda.atomic.compare_and_swap(grid_volume[k, i, j], 0, int(0.5 * ( grid_volume[k-reversed_path, i, j] + 1 )) )
@@ -71,15 +73,17 @@ def check_int_ext_noreturn_cuda (points, grid_volume, axis, reversed_path, min_l
 	if axis == 1 and i < grid_volume.shape[0] and j < grid_volume.shape[2]:
 		
 		for k in range(abs(min(1, reversed_path*grid_volume.shape[0] + 1)), abs(max(reversed_path*grid_volume.shape[0], 0)), reversed_path):
-			for point in points:
+			for point in range(surface_points.shape[0]):
 
-				if int(point[0]) == min_limit + i and int(point[1]) == min_limit + k and int(point[2]) == min_limit + j:
+				if int(surface_points[point, 0]) == min_limit + i and int(surface_points[point, 1]) == min_limit + k and int(surface_points[point, 2]) == min_limit + j:
 					
 					if grid_volume[i, k-reversed_path, j] == 0 or grid_volume[i, k-reversed_path, j] == 1:
 						cuda.atomic.compare_and_swap(grid_volume[i, k, j], 0, 1)
 						
 					elif grid_volume[i, k-reversed_path, j] == -1:
 						cuda.atomic.compare_and_swap(grid_volume[i, k, j], 0, -1)
+						
+					break
 			
 			if grid_volume[i, k-reversed_path, j] != 0:
 				cuda.atomic.compare_and_swap(grid_volume[i, k, j], 0, int(0.5 * ( grid_volume[i, k-reversed_path, j] + 1 )) )
@@ -88,15 +92,17 @@ def check_int_ext_noreturn_cuda (points, grid_volume, axis, reversed_path, min_l
 	if axis == 2 and i < grid_volume.shape[0] and j < grid_volume.shape[1]:
 		
 		for k in range(abs(min(1, reversed_path*grid_volume.shape[0] + 1)), abs(max(reversed_path*grid_volume.shape[0], 0)), reversed_path):
-			for point in points:
+			for point in range(surface_points.shape[0]):
 				
-				if int(point[0]) == min_limit + i and int(point[1]) == min_limit + j and int(point[2]) == min_limit + k:
+				if int(surface_points[point, 0]) == min_limit + i and int(surface_points[point, 1]) == min_limit + j and int(surface_points[point, 2]) == min_limit + k:
 										
 					if grid_volume[i, j, k-reversed_path] == 0 or grid_volume[i, j, k-reversed_path] == 1:
 						cuda.atomic.compare_and_swap(grid_volume[i, j, k], 0, 1)
 						
 					elif grid_volume[i, j, k-reversed_path] == -1:
 						cuda.atomic.compare_and_swap(grid_volume[i, j, k], 0, -1)
+						
+					break
 											
 			if grid_volume[i, j, k-reversed_path] != 0:
 				cuda.atomic.compare_and_swap(grid_volume[i, j, k], 0, int(0.5 * ( grid_volume[i, j, k-reversed_path] + 1 )) )

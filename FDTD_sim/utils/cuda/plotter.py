@@ -234,7 +234,7 @@ class plotter():
 				pass
 						
 		except Exception as e:
-			print(f'Error in utils.cuda.plotter.plotter.finish_saving_video: {e}')
+			print(f'Error in utils.cuda.plotter.plotter.record: {e}')
 			
 	def finish(self):
 		try:
@@ -243,7 +243,7 @@ class plotter():
 			self.switch_ready_to_plot()
 			
 		except Exception as e:
-			print(f'Error in utils.cuda.plotter.plotter.finish_saving_video: {e}')
+			print(f'Error in utils.cuda.plotter.plotter.finish: {e}')
 			
 	def is_frame(self, time, ratio_times):
 		try:
@@ -258,7 +258,7 @@ class plotter():
 			return False
 			
 		except Exception as e:
-			print(f'Error in utils.cuda.plotter.plotter.finish_saving_video: {e}')
+			print(f'Error in utils.cuda.plotter.plotter.is_frame: {e}')
 
 			
 	def erase_variable (*vars_to_erase):

@@ -299,7 +299,7 @@ class executor ():
                     
                     if recording:
                         recording = False
-                        self.plotter.switch_ready_to_plot()
+                        self.plotter.finish()
                         
                 self.time = self.time + self.dt
             
