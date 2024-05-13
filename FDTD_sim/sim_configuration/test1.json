@@ -1,47 +1,64 @@
 {
-  "precission": [ "float64", "complex128" ],
+  "precission": [ "float32", "complex64" ],
 
   "times": {
-    "thermalization": 1.0, //Seconds thermalizing the system
-    "simulation": 1.0, //Seconds of simulation after thermalizing
-    "record_times": [ 0.5, 0.6 ] //Initial and final time of record after thermalizing
+    "thermalization": 7.5e-6,
+    "_comment_thermalization": "Seconds thermalizing the system",
+    "simulation": 9e-4,
+    "_comment_simulation": "Seconds of simulation after thermalizing",
+    "record_times": [ 1e-8, 7.5e-4 ],
+    "_comment_record_times": "Initial and final time of record after thermalizing. Maximum 1:02 minutes (1488 frames)."
   },
 
   "grid": {
 
     "sim_parameters": {
-      "dt": 1e-6, //s
-      "ds": 1e-3, //m
-      "nPoints": 4096,
+      "dt": 5.0e-8,
+      "_comment_dt": "s. 40kHz is 2.5e-5 times per second. Recommended ds / ( 2 * sqrt(2) * c )",
+      "ds": 1e-4,
+      "_comment_ds": "m. 40kHz is 8.575e-3 m of wavelegth. Recommended lambda/10 (approx). Keep in mind you have to change more parameters if you change this one.",
+      "nPoints": 256,
       "airAbsorptivity": 0.0,
-      "density": 1.2, //kg/m3
-      "c": 343
+      "density": 1.225,
+      "_comment_density": "kg/m3",
+      "c": 343.0
     },
 
     "boundary": {
-      "layer_thickness": 6,
-      "max_object_distance": 6,
-      "grid_limits_min": -2.048 //"En m "
+      "layer_thickness": 8,
+      "_comment_layer_thickness": "The thicknes (in cells) of the PML boundary.",
+      "max_object_distance": 8,
+      "grid_limits_min": -0.01,
+      "_comment_grid_limits_min": "En m"
     }
 
   },
 
   "transducers": [
     {
-      "model": "path",
-      "zone_emission": "path",
+      "model": "./utils/geometries/Transducers/Mi_Bola/",
+      "zone_emission": "./utils/geometries/Transducers/Mi_Bola/",
       "file_extension": ".stl",
-      "amplitude": 1.5e-3, //m ; seen in datasheet for muRata MA40S4S
-      "frequency": 40000, //En Hz
-      "initial_phase":  0.0, //Creo que en rad
+      "amplitude": 1.0,
+      "_comment_amplitude": "m ; seen in datasheet for muRata MA40S4S",
+      "frequency": 40000.0,
+      "_comment_frequency": "En Hz",
 
       "units": [
         {
-          "normal": [ 0, 0, 1 ], //"normal of the object in the original 3D mesh"
-          "location": [ -2, 0, 0 ], //"position"
-          "orientation": [ 0, 0, 0 ], //"where the normal should point"
-          "scale": 1.0, //"scale of the object in terms of the scale of the 3D mesh"
-          "triangle_multiplier":  1.0 //"number of points for each triangle in the 3D mesh"
+          "normal": [ 0.0, 0.0, 1.0 ],
+          "_comment_normal": "normal of the object in the original 3D mesh",
+          "location": [ 0.0, 0.0, 0.0 ],
+          "_comment_location": "position",
+          "orientation": [ 0.1, 0.0, 0.0 ],
+          "_comment_orientation": "where the normal should point",
+          "scale": 0.5,
+          "_comment_scale": "scale of the object in terms of the scale of the 3D mesh",
+          "triangle_multiplier": 0.1,
+          "_comment_triangle_multiplier": "number of points for each triangle in the 3D mesh",
+
+          "initial_phase": 90.0,
+          "_comment_initial_phase": "Creo que en rad"
         }
       ]
 
@@ -49,50 +66,60 @@
     }
   ],
 
-  "objects": [
+  "objects": "None",
+
+  "boundaries": [
     {
-      "model": "path",
-      "file_extension": ".stl",
+
+      "model": "plain_wall",
 
       "units": [
         {
-          "normal": [ 0, 0, 1 ], //"normal of the object"
-          "location": [ 0, 0, 0 ], //"position"
-          "orientation": [ 0, 0, 0 ], //"where the normal should point"
-          "scale": 1.0, //"scale of the object in terms of the scale of the 3D mesh"
-          "triangle_multiplier": 1.0 //"number of points for each triangle in the 3D mesh"
+          "location": [ 0.01, 0.0, 0.0 ],
+          "_comment_location": "position",
+          "orientation": [ -1.0, 0.0, 0.0 ],
+          "_comment_orientation": "where the normal should point",
+          "max_object_distance": 0
         }
       ]
-
 
     }
   ],
 
   "plot": {
 
-    "mode": "plane", // We can choose between "plane" to plot a simple plane of the grid, or "manual" to select the points manually (Work in progress, not available yet)
-    "region": { // If we select "plane" mode, it is a dictionary with axis and location in m (it must be a value between the limits of the grid).
-      // If we select "manual" mode, it must be the path to a txt file with the points. We can implement a simple code to generate this points in terms of the grid for simple geometries (spheres...).
-      "axis": "X",
-      "value": 2.0
+      "mode": "plane",
+      "_comment_mode": "We can choose between -plane- to plot a simple plane of the grid, or -manual- to select the points manually (Work in progress, not available yet)",
+      "region": {
+        "_comment_1": "If we select -plane- mode, it is a dictionary with axis and location in m (it must be a value between the limits of the grid).",
+        "_comment_2": "If we select -manual- mode, it must be the path to a txt file with the points. We can implement a simple code to generate this points in terms of the grid for simple geometries (spheres...).",
 
-    },
+        "axis": "Z",
+        "value": 0.0
 
-    "initial_ready_to_plot": "False",
-    "value_to_plot": "amplitude", //We can select to plot amplitude or phase.
+      },
 
-    "save_video": {
+      "initial_ready_to_plot": "False",
+      "value_to_plot": {
+        "component": "phase",
+        "min_value_amplitude": 0,
+        "max_value_amplitude": 5,
+        "_comment_value_to_plot": "We can select to plot amplitude or phase."
+      },
 
-      "activated": "True",
-      "video_name": "test.avi",
-      "path_to_save": "path",
-      "fps": 24,
-      "video_quality": [ 1024, 1080 ]
+      "save_video": {
 
-    },
+        "activated": "True",
+        "video_name": "test.avi",
+        "path_to_save": "./video_saves/",
+        "fps": 24,
+        "video_quality": [ 512, 512 ]
 
-    "ratio_sim_plot_times": 1e-4 //Ratio "time in simulation" to "time between frames in plot".
+      },
+
+      "ratio_sim_plot_times": 1e-7,
+      "_comment_ratio_sim_plot_times": "Ratio -time in simulation- to -time between frames in plot-."
 
 
-  }
+    }
 }

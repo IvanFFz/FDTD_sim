@@ -2,26 +2,33 @@
   "precission": [ "float64", "complex128" ],
 
   "times": {
-    "thermalization": 5.0, //Seconds thermalizing the system
-    "simulation": 15.0, //Seconds of simulation after thermalizing
-    "record_times": [ 0.0, 10.0 ] //Initial and final time of record after thermalizing
+    "thermalization": 1.0,
+    "_comment_thermalization": "Seconds thermalizing the system",
+    "simulation": 1.0,
+    "_comment_simulation": "Seconds of simulation after thermalizing",
+    "record_times": [ 0.5, 0.6 ],
+    "_comment_record_times": "Initial and final time of record after thermalizing"
   },
 
   "grid": {
 
     "sim_parameters": {
       "dt": 0.01,
+      "_comment_dt": "s",
       "ds": 0.01,
+      "_comment_ds": "m",
       "nPoints": 4096,
       "airAbsorptivity": 0.0,
       "density": 1,
+      "_comment_density": "kg/m3",
       "c": 1
     },
 
     "boundary": {
       "layer_thickness": 6,
       "max_object_distance": 6,
-      "grid_limits_min": 0.0 //"En m por ejemplo"
+      "grid_limits_min": 0.0,
+      "_comment_grid_limits_min": "En m"
     }
 
   },
@@ -31,17 +38,25 @@
       "model": "path",
       "zone_emission": "path",
       "file_extension": ".stl",
-      "amplitude": 1.0, //Hay que ver en qué unidades
-      "frequency": 40000, //En Hz
-      "initial_phase":  0.0, //Creo que en rad
+      "amplitude": 1.0,
+      "_comment_amplitude": "m ; seen in datasheet for muRata MA40S4S",
+      "frequency": 40000,
+      "_comment_frequency": "En Hz",
+      "initial_phase": 0.0,
+      "_comment_initial_phase": "Creo que en rad",
 
       "units": [
         {
-          "normal": [ 0, 0, 1 ], //"normal of the object"
-          "location": [ 0, 0, 0 ], //"position"
-          "orientation": [ 0, 0, 0 ], //"where the normal should point"
-          "scale": 1.0, //"scale of the object in terms of the scale of the 3D mesh"
-          "triangle_multiplier":  1.0 //"number of points for each triangle in the 3D mesh"
+          "normal": [ 0, 0, 1 ],
+          "_comment_normal": "normal of the object in the original 3D mesh",
+          "location": [ 0, 0, 0 ],
+          "_comment_location": "position",
+          "orientation": [ 0, 0, 0 ],
+          "_comment_orientation": "where the normal should point",
+          "scale": 1.0,
+          "_comment_scale": "scale of the object in terms of the scale of the 3D mesh",
+          "triangle_multiplier": 1.0,
+          "_comment_triangle_multiplier": "number of points for each triangle in the 3D mesh"
         }
       ]
 
@@ -56,11 +71,16 @@
 
       "units": [
         {
-          "normal": [ 0, 0, 1 ], //"normal of the object"
-          "location": [ 0, 0, 0 ], //"position"
-          "orientation": [ 0, 0, 0 ], //"where the normal should point"
-          "scale": 1.0, //"scale of the object in terms of the scale of the 3D mesh"
-          "triangle_multiplier": 1.0 //"number of points for each triangle in the 3D mesh"
+          "normal": [ 0, 0, 1 ],
+          "_comment_normal": "normal of the object in the original 3D mesh",
+          "location": [ 0, 0, 0 ],
+          "_comment_location": "position",
+          "orientation": [ 0, 0, 0 ],
+          "_comment_orientation": "where the normal should point",
+          "scale": 1.0,
+          "_comment_scale": "scale of the object in terms of the scale of the 3D mesh",
+          "triangle_multiplier": 1.0,
+          "_comment_triangle_multiplier": "number of points for each triangle in the 3D mesh"
         }
       ]
 
@@ -70,16 +90,19 @@
 
   "plot": {
 
-    "mode": "plane", // We can choose between "plane" to plot a simple plane of the grid, or "manual" to select the points manually (Work in progress, not available yet)
-    "region": { // If we select "plane" mode, it is a dictionary with axis and location in m (it must be a value between the limits of the grid).
-      // If we select "manual" mode, it must be the path to a txt file with the points. We can implement a simple code to generate this points in terms of the grid for simple geometries (spheres...).
+    "mode": "plane",
+    "_comment_mode": "We can choose between -plane- to plot a simple plane of the grid, or -manual- to select the points manually (Work in progress, not available yet)",
+    "region": {
+      "_comment_1": "If we select -plane- mode, it is a dictionary with axis and location in m (it must be a value between the limits of the grid).",
+      "_comment_2": "If we select -manual- mode, it must be the path to a txt file with the points. We can implement a simple code to generate this points in terms of the grid for simple geometries (spheres...).",
       "axis": "Z",
       "value": 0.15
 
     },
 
     "initial_ready_to_plot": "False",
-    "value_to_plot": "amplitude", //We can select to plot amplitude or phase.
+    "value_to_plot": "amplitude",
+    "_comment_value_to_plot": "We can select to plot amplitude or phase.",
 
     "save_video": {
 
@@ -91,7 +114,8 @@
 
     },
 
-    "ratio_sim_plot_times": 0.1 //Ratio "time in simulation" to "time between frames in plot".
+    "ratio_sim_plot_times": 0.1,
+    "_comment_ratio_sim_plot_times": "Ratio -time in simulation- to -time between frames in plot-."
 
 
   }

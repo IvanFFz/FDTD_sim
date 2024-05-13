@@ -1,4 +1,4 @@
-import numba
+#import numba
 import os
 from time import time
 from numba import cuda
@@ -27,7 +27,7 @@ print("pciBusID = %s" % str(gpu.PCI_BUS_ID))
 print("pciDeviceID = %s" % str(gpu.PCI_DEVICE_ID))
 
 
-settings_dir = os.path.abspath('../sim_configuration/test1.json')
+settings_dir = './sim_configuration/test1.json'
 
 
 print('\n\n\n CUDA')

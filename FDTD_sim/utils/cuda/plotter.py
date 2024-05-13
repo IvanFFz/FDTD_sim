@@ -2,6 +2,7 @@ from matplotlib import pyplot as plt
 from numba import cuda
 import numpy as np, math, cmath, os, cv2
 from .calculator import optimize_blockdim
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 def extract_data_plane_noreturn_cuda(data, field, axis, value, amp_or_phase):
 	
@@ -29,7 +30,7 @@ class plotter():
 
 		assert cuda.is_available(), 'Cuda is not available.'
 		assert stream is not None, 'Cuda not configured. Stream required.'
-		assert self.region['axis'] in ['X', 'Y', 'Z'], f'Incorrect axis to plot.'
+		assert region['axis'] in ['X', 'Y', 'Z'], f'Incorrect axis to plot.'
 		#assert os.path.exists(path), f'Path {path} not valid.'
 		#assert isinstance(num_emitters, int), f'Number of emitters is not valid. Inserted {num_emitters}.'
 		
@@ -40,6 +41,7 @@ class plotter():
 		self.blockdim = blockdim
 		self.size = size
 		self.griddim = None
+		self.stream = stream
 		
 		self.config_plotter_functions()
 		
@@ -48,13 +50,28 @@ class plotter():
 		elif ready_to_plot==True or ready_to_plot=="True":
 			self.ready_to_plot = True
 			
-		if value_to_plot == 'amplitude':
+		if value_to_plot['component'] == 'amplitude':
 			self.amp_or_phase = 0
-		elif value_to_plot == 'phase':
+			self.vmin = value_to_plot['min_value_amplitude']
+			self.vmax = value_to_plot['max_value_amplitude']
+		elif value_to_plot['component'] == 'phase':
 			self.amp_or_phase = 1
 		
 		self.mode = mode
 		self.region = region
+		
+		if mode == 'plane':
+				
+			if self.region['axis'] == 'X':
+				self.axis = int(0)
+			elif self.region['axis'] == 'Y':
+				self.axis = int(1)
+			elif self.region['axis'] == 'Z':
+				self.axis = int(2)
+
+			x_pos = [grid_limits[0] + i*ds for i in range(0, nPoints )]
+			y_pos = [grid_limits[0] + i*ds for i in range(0, nPoints )]
+				
 		if save_video['activated'] == "True":
 			self.video_name = save_video['video_name']
 			self.path_to_save = save_video['path_to_save']
@@ -63,31 +80,24 @@ class plotter():
 			self.video_quality = save_video['video_quality']
 			
 			self.plot_name = self.video_name.split('.')[0] + '\n' + mode + ' mode.'
+			
 			if mode == 'plane':
 				
-				if self.region['axis'] == 'X':
-					self.axis = 0
-				elif self.region['axis'] == 'Y':
-					self.axis = 1
-				elif self.region['axis'] == 'Z':
-					self.axis = 2
+				self.plot_name = self.plot_name + ' Plane ' + self.region['axis'] + ' = ' + str(self.region['value'])
 
-				self.plot_name = self.plot_name + ' Plane ' + self.region['axis'] + ' = ' + self.region['value']
-				x_pos = [grid_limits[0] + i*ds for i in range(nPoints)]
-				y_pos = [grid_limits[0] + i*ds for i in range(nPoints)]
-				
-				self.init_save_video()
+			self.init_save_video()
 				
 		else:
 			self.video_name = None
 			
 										
 		self.dt = dt
+		self.region['value'] = round( ( self.region['value'] - grid_limits[0] ) / ds )
 
 		self.data = None
 		self.X, self.Y = np.meshgrid(x_pos, y_pos, indexing = 'ij')
 		
-		plt.ion()
+		#plt.ion()
 		
 		self.define_plot()
 		
@@ -96,12 +106,12 @@ class plotter():
 		try:
 			self.config = {
 				
-				'extract_data_plane':              cuda.jit('void('+self.OutVarType+'[:,:], '+self.OutVarType+'[:,:,:], int64, int64, int64)', fastmath = True)(extract_data_plane_noreturn_cuda)
+				'extract_data_plane':              cuda.jit('void('+self.VarType+'[:,:], '+self.OutVarType+'[:,:,:], int64, int64, int64)', fastmath = True)(extract_data_plane_noreturn_cuda)
                 
             }
 			
 		except Exception as e:
-			print(f'Error in utils.cuda.executor.executor.config_functions: {e}')
+			print(f'Error in utils.cuda.plotter.plotter.config_plotter_functions: {e}')
 
 	def config_plotter(self, size=None, blockdim = None, stream = None):
 		try:
@@ -124,17 +134,18 @@ class plotter():
 			if stream is not None:
 				self.stream = stream
 		except Exception as e:
-			print(f'Error in utils.cuda.executor.executor.config_executor: {e}')
+			print(f'Error in utils.cuda.plotter.plotter.config_plotter: {e}')
        
 	
 	def define_plot(self):
 		try:
 			
 			self.figure, self.ax = plt.subplots(figsize=(10,10))
-			
 			if self.video_name is not None:
-				self.ax.set_title (self.plot_name)
-				
+				self.ax.set_title(self.plot_name)			
+			divider = make_axes_locatable(self.ax)
+			self.cax = divider.append_axes('right', size='5%', pad=0.05)
+							
 		except Exception as e:
 			print(f'Error in utils.cuda.plotter.plotter.define_plot: {e}')
 			
@@ -154,12 +165,33 @@ class plotter():
 			
 	def extract_data (self, input_field):
 		try:
+			#print((input_field.copy_to_host()[self.region['value'],:,:]==0).sum(0))
 			
+			#print(self.X.shape, self.Y.shape)
 			if self.mode == 'plane':
 				
-				self.config_manager(size=(self.data.shape[0], self.data.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, self.data.shape[0], self.data.shape[1]))
-									
-				self.config['extract_data_plane'](self.data, input_field, self.axis, self.region['value'], self.amp_or_phase)
+				if self.axis == 0:
+					
+					if self.data is None:
+						self.data =  cuda.device_array((input_field.shape[1], input_field.shape[2]),
+								dtype = self.VarType, stream = self.stream)
+					
+				elif self.axis == 1:
+					
+					if self.data is None:
+						self.data =  cuda.device_array((input_field.shape[0], input_field.shape[2]),
+								dtype = self.VarType, stream = self.stream)
+						
+				elif self.axis == 2:
+					
+					if self.data is None:
+						self.data =  cuda.device_array((input_field.shape[0], input_field.shape[1]),
+								dtype = self.VarType, stream = self.stream)
+					
+				
+				self.config_plotter(size=(self.data.shape[0], self.data.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, self.data.shape[0], self.data.shape[1]))
+				
+				self.config['extract_data_plane'][self.griddim, self.blockdim, self.stream](self.data, input_field, self.axis, self.region['value'], self.amp_or_phase)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.plotter.plotter.extract_data: {e}')
@@ -168,16 +200,30 @@ class plotter():
 		try:
 			
 			if self.ready_to_plot:
+				
+				#plt.clf()
+				self.ax.cla()
+
 				data = self.data.copy_to_host(stream=self.stream)
-				if self.amp_or_phase == 0:
-					im = self.ax.pcolormesh(self.X, self.Y, data, cmap='PuRd')
+				#print((data==0).sum(0))
+				
+				if self.amp_or_phase == 0: #amplitude
+					im = self.ax.pcolormesh(self.X, self.Y, data, cmap='PuRd', vmin = self.vmin, vmax = self.vmax,
+							 shading='nearest')
+					if self.video_name is not None:
+						self.ax.set_title(self.plot_name)
 					
-				elif self.amp_or_phase == 1:
-					im = self.ax.pcolormesh(self.X, self.Y, data, cmap='hsv')
+				elif self.amp_or_phase == 1: #phase
+					im = self.ax.pcolormesh(self.X, self.Y, data, cmap='hsv', vmin = -3.15, vmax = 3.15,
+							 shading='nearest')
+					if self.video_name is not None:
+						self.ax.set_title(self.plot_name)
 					
-				self.figure.colorbar(im, ax=self.ax)
+				self.figure.colorbar(im, cax = self.cax, orientation = 'vertical')
 				
 				self.figure.canvas.draw()
+				#self.figure.canvas.flush_events()
+				
 				plt.pause(0.01)
 					
 			else:
@@ -248,13 +294,17 @@ class plotter():
 	def is_frame(self, time, ratio_times):
 		try:
 			
-			in_ratio = ratio_times*time - math.floor(ratio_times*time)
-			eq_to_frame = 1.0/self.fps
+			in_ratio = time/ratio_times - math.floor(time/ratio_times)
+			#eq_to_frame = 1.0/self.fps
+			
+			if in_ratio <= self.dt/ratio_times:
+				print('.')
+				return True
 
-			for i in range(self.fps):
-				if in_ratio > i*eq_to_frame - self.dt and in_ratio < i*eq_to_frame + self.dt:
-					return True
-				
+			#for i in range(self.fps):
+			#	if in_ratio > i*eq_to_frame - self.dt*0.5 and in_ratio < i*eq_to_frame + self.dt*0.5:
+			#		return True
+			#	
 			return False
 			
 		except Exception as e:
@@ -268,4 +318,4 @@ class plotter():
 				var = None			
 
 		except Exception as e:
-			print(f'Error in utils.cpu.plotter.plotter.erase_variable: {e}')
+			print(f'Error in utils.cuda.plotter.plotter.erase_variable: {e}')
