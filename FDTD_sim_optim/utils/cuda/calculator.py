@@ -1,12 +1,13 @@
 import numpy as np, cmath #, numba, math
 from numba import cuda
+from numba.types import uint32 as u32
 
 def calculate_bd_b2 (number, base=2, max_value = 1024):
     return min(int(base**(np.ceil(np.log(number)/np.log(base))-1)), max_value)
 
 def optimize_blockdim (processorCount, size_0, size_1=0, size_2=0):
-	threshold_1 = 1.0
-	threshold_2 = 1.5
+	threshold_1 = 2.5
+	threshold_2 = 2.5
 	bd_0 = calculate_bd_b2(size_0, 2)
 	param = np.ceil(np.log(2*processorCount)/np.log(2))
 
@@ -121,19 +122,19 @@ def optimize_blockdim (processorCount, size_0, size_1=0, size_2=0):
 			if exp_0 <= threshold_1 and max(exp_1, exp_2) <= threshold_2:
 				bd = (max(1, calculate_bd_b2(size_0/div_0, max_value = div_0)),
 						(max(1, calculate_bd_b2(size_1/div_1, max_value = div_1))),
-						(max(1, calculate_bd_b2(size_2/div_2, max_value = div_2))))
+						(max(1, calculate_bd_b2(size_2/div_2, max_value = min(div_2, 64)))))
 			elif exp_0 > threshold_1 and max(exp_1, exp_2) <= threshold_2:
 				bd = (max(1, calculate_bd_b2(size_0/div_0, 2)), 
 						(max(1, calculate_bd_b2(size_1/div_1, max_value = div_1))),
-						(max(1, calculate_bd_b2(size_2/div_2, max_value = div_2))))
+						(max(1, calculate_bd_b2(size_2/div_2, max_value = min(div_2, 64)))))
 			elif exp_0 <= threshold_1 and max(exp_1, exp_2) > threshold_2:
 				bd = (max(1, calculate_bd_b2(size_0/div_0, max_value = div_0)),
 						(max(1, calculate_bd_b2(size_1/div_1))),
-						(max(1, calculate_bd_b2(size_2/div_2))))
+						(max(1, calculate_bd_b2(size_2/div_2, max_value=64))))
 			else:
 				bd = (max(1, calculate_bd_b2(size_0/div_0)), 
 						(max(1, calculate_bd_b2(size_1/div_1))), 
-						(max(1, calculate_bd_b2(size_2/div_2))))
+						(max(1, calculate_bd_b2(size_2/div_2, max_value=64))))
 		
 		bd = (int(bd[0]), int(bd[1]), int(bd[2]))
 	#print(bd)
@@ -152,49 +153,107 @@ Execute for each axis
 Standard discrete spatial derivatives defined as 0.5*([x+1] - [x-1]), with boundaries [1]-[0] and [end]-[end-1]
 '''
 
-def step_velocity_values_n_emitters_noreturn_cuda (velocity, pressure, field, dt, ds, rho, normal, emitters_amplitude, emitters_frequency, emitters_phase, time):
+def step_velocity_values_n_emitters_noreturn_cuda (velocity, pressure, field, dt, ds, rho, normal, emitters_amplitude, emitters_frequency, emitters_phase, time, size):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
 	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
 	
-	if i<velocity.shape[0] and j<velocity.shape[1] and k<velocity.shape[2]:
+	if i< u32(size) and j< u32(size) and k< u32(size):
 		
-		if emitters_amplitude[i, j, k] == 0:
+		if emitters_amplitude[u32(i + j*size + k*size**2)] == 0:
 			
-			velocity[i,j,k,0] = ( field[0, i, j, k] * velocity[i, j, k, 0] - field[0, i, j, k]**2 * dt *( 
-								(pressure[i, j, k] - pressure[max(0, i-1), j, k]) / ( ds * rho ) ) 
-							) / ( field[0, i, j, k] + ( 1 - field[0, i, j, k] + field[1, i, j, k] ) * dt )
+			if i > 0:
+			
+				velocity[u32(i + j*size + k*size**2)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2)] - field[u32(i + j*size + k*size**2)]**2 * dt *( 
+									(pressure[u32(i + j*size + k*size**2)] - pressure[u32(i-1 + j*size + k*size**2)]) / ( ds * rho ) ) 
+								) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt )
+			else:
+				
+				velocity[u32(i + j*size + k*size**2)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2)] 
+								) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt )
+				
+			if j > 0:
 		
-			velocity[i,j,k,1] = ( field[0, i, j, k] * velocity[i, j, k, 1] - field[0, i, j, k]**2 * dt * (
-								(pressure[i, j, k] - pressure[i, max(0, j-1), k]) / ( ds * rho ) ) 
-							) / ( field[0, i, j, k] + ( 1 - field[0, i, j, k] + field[1, i, j, k] ) * dt )
+				velocity[u32(i + j*size + k*size**2 + velocity.shape[0] / 3)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2 + velocity.shape[0] / 3)] - field[u32(i + j*size + k*size**2)]**2 * dt * (
+								(pressure[u32(i + j*size + k*size**2)] - pressure[ u32(i + (j-1)*size + k*size**2)]) / ( ds * rho ) ) 
+								) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt )
+				
+			else:
+				
+				velocity[u32(i + j*size + k*size**2 + velocity.shape[0] / 3)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2 + velocity.shape[0] / 3)] 
+								) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt )
 		
-			velocity[i,j,k,2] = ( field[0, i, j, k] * velocity[i, j, k, 2] - field[0, i, j, k]**2 * dt * (
-								(pressure[i, j, k] - pressure[i, j, max(0, k-1)]) / ( ds * rho ) ) 
-							) / ( field[0, i, j, k] + ( 1 - field[0, i, j, k] + field[1, i, j, k] ) * dt )
+			if k > 0:
+
+				velocity[u32(i + j*size + k*size**2 + 2*velocity.shape[0] / 3)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2 + 2*velocity.shape[0] / 3)] - field[u32(i + j*size + k*size**2)]**2 * dt * (
+								(pressure[u32(i + j*size + k*size**2)] - pressure[u32(i + j*size + (k-1)*size**2)]) / ( ds * rho ) ) 
+								) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt )
+				
+			else:
+				
+				velocity[u32(i + j*size + k*size**2 + 2*velocity.shape[0] / 3)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2 + 2*velocity.shape[0] / 3)] 
+								) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt )
+		
 
 		else:
-		
-			velocity[i,j,k,0] = ( field[0, i, j, k] * velocity[i, j, k, 0] - field[0, i, j, k]**2 * dt *( 
-								(pressure[i, j, k] - pressure[max(0, i-1), j, k]) / ( ds * rho ) ) +
-								( 1 - field[0, i, j, k] + field[1, i, j, k] ) * dt * cmath.rect( normal[i, j, k, 0] * emitters_amplitude[i, j, k],
-																								emitters_frequency[i, j, k]*time + emitters_phase[i, j, k])
-							) / ( field[0, i, j, k] + ( 1 - field[0, i, j, k] + field[1, i, j, k] ) * dt )
-		
-			velocity[i,j,k,1] = ( field[0, i, j, k] * velocity[i, j, k, 1] - field[0, i, j, k]**2 * dt * (
-								(pressure[i, j, k] - pressure[i, max(0, j-1), k]) / ( ds * rho ) ) +
-								( 1 - field[0, i, j, k] + field[1, i, j, k] ) * dt * cmath.rect( normal[i, j, k, 1] * emitters_amplitude[i, j, k],
-																								emitters_frequency[i, j, k]*time + emitters_phase[i, j, k])
-							) / ( field[0, i, j, k] + ( 1 - field[0, i, j, k] + field[1, i, j, k] ) * dt )
-		
-			velocity[i,j,k,2] = ( field[0, i, j, k] * velocity[i, j, k, 2] - field[0, i, j, k]**2 * dt * (
-								(pressure[i, j, k] - pressure[i, j, max(0, k-1)]) / ( ds * rho ) ) +
-								( 1 - field[0, i, j, k] + field[1, i, j, k] ) * dt * cmath.rect( normal[i, j, k, 2] * emitters_amplitude[i, j, k],
-																								emitters_frequency[i, j, k]*time + emitters_phase[i, j, k])
-							) / ( field[0, i, j, k] + ( 1 - field[0, i, j, k] + field[1, i, j, k] ) * dt )
 			
-	
+			if field[u32(i + j*size + k*size**2)] == 0:
+				
+				velocity[u32(i + j*size + k*size**2)] = cmath.rect( normal[u32(i + j*size + k*size**2)] * emitters_amplitude[u32(i + j*size + k*size**2)],
+																		emitters_frequency[u32(i + j*size + k*size**2)]*time + emitters_phase[u32(i + j*size + k*size**2)])
+					
+				velocity[u32(i + j*size + k*size**2 + velocity.shape[0] / 3)] = cmath.rect( normal[u32(i + j*size + k*size**2 + normal.shape[0] / 3)] * emitters_amplitude[u32(i + j*size + k*size**2)],
+																							emitters_frequency[u32(i + j*size + k*size**2)]*time + emitters_phase[u32(i + j*size + k*size**2)]) 
+				
+				velocity[u32(i + j*size + k*size**2 + 2*velocity.shape[0] / 3)] = cmath.rect( normal[u32(i + j*size + k*size**2 + 2*normal.shape[0] / 3)] * emitters_amplitude[u32(i + j*size + k*size**2)],
+																							emitters_frequency[u32(i + j*size + k*size**2)]*time + emitters_phase[u32(i + j*size + k*size**2)])
+				
+			else:
+			
+				if i > 0:
+			
+					velocity[u32(i + j*size + k*size**2)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2)] - field[u32(i + j*size + k*size**2)]**2 * dt *( 
+										(pressure[u32(i + j*size + k*size**2)] - pressure[u32(i-1 + j*size + k*size**2)]) / ( ds * rho ) ) +
+									( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt * cmath.rect( normal[u32(i + j*size + k*size**2)] * emitters_amplitude[u32(i + j*size + k*size**2)],
+																																								emitters_frequency[u32(i + j*size + k*size**2)]*time + emitters_phase[u32(i + j*size + k*size**2)])
+									) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt )
+				else:
+				
+					velocity[u32(i + j*size + k*size**2)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2)] +
+									( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt * cmath.rect( normal[u32(i + j*size + k*size**2)] * emitters_amplitude[u32(i + j*size + k*size**2)],
+																																								emitters_frequency[u32(i + j*size + k*size**2)]*time + emitters_phase[u32(i + j*size + k*size**2)])
+									) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt )
+				
+				if j > 0:
+		
+					velocity[u32(i + j*size + k*size**2 + velocity.shape[0] / 3)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2 + velocity.shape[0] / 3)] - field[u32(i + j*size + k*size**2)]**2 * dt * (
+									(pressure[u32(i + j*size + k*size**2)] - pressure[ u32(i + (j-1)*size + k*size**2)]) / ( ds * rho ) )+
+									( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt * cmath.rect( normal[u32(i + j*size + k*size**2 + normal.shape[0] / 3)] * emitters_amplitude[u32(i + j*size + k*size**2)],
+																																								emitters_frequency[u32(i + j*size + k*size**2)]*time + emitters_phase[u32(i + j*size + k*size**2)]) 
+								) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt)
+				
+				else:
+				
+					velocity[u32(i + j*size + k*size**2 + velocity.shape[0] / 3)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2 + velocity.shape[0] / 3)] +
+									( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt * cmath.rect( normal[u32(i + j*size + k*size**2 + normal.shape[0] / 3)] * emitters_amplitude[u32(i + j*size + k*size**2)],
+																																								emitters_frequency[u32(i + j*size + k*size**2)]*time + emitters_phase[u32(i + j*size + k*size**2)]) 
+									) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt)
+		
+				if k > 0:
+
+					velocity[u32(i + j*size + k*size**2 + 2*velocity.shape[0] / 3)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2 + 2*velocity.shape[0] / 3)] - field[u32(i + j*size + k*size**2)]**2 * dt * (
+									(pressure[u32(i + j*size + k*size**2)] - pressure[u32(i + j*size + (k-1)*size**2)]) / ( ds * rho ) ) +
+									( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt * cmath.rect( normal[u32(i + j*size + k*size**2 + 2*normal.shape[0] / 3)] * emitters_amplitude[u32(i + j*size + k*size**2)],
+																																								emitters_frequency[u32(i + j*size + k*size**2)]*time + emitters_phase[u32(i + j*size + k*size**2)])
+								) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt  )
+				
+				else:
+				
+					velocity[u32(i + j*size + k*size**2 + 2*velocity.shape[0] / 3)] = ( field[u32(i + j*size + k*size**2)] * velocity[u32(i + j*size + k*size**2 + 2*velocity.shape[0] / 3)]  +
+									( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt * cmath.rect( normal[u32(i + j*size + k*size**2 + 2*normal.shape[0] / 3)] * emitters_amplitude[u32(i + j*size + k*size**2)],
+																																								emitters_frequency[u32(i + j*size + k*size**2)]*time + emitters_phase[u32(i + j*size + k*size**2)])
+									) / ( field[u32(i + j*size + k*size**2)] + ( 1 - field[u32(i + j*size + k*size**2)] + field[u32(i + j*size + k*size**2 + field.shape[0] / 2)] ) * dt )
 
 def step_velocity_values_noreturn_cuda (velocity, v_b, pressure, beta, sigma, dt, ds, rho):
 	
@@ -219,22 +278,82 @@ def step_velocity_values_noreturn_cuda (velocity, v_b, pressure, beta, sigma, dt
 							( 1 - beta[i,j,k] + sigma[i, j, k] ) * dt * v_b[i,j,k,2]
 						) / ( beta[i, j, k] + ( 1 - beta[i, j, k] + sigma[i, j, k] ) * dt )
 			
-def step_pressure_values_noreturn_cuda (pressure, velocity, field, dt, ds, rho_csq):
+def step_pressure_values_noreturn_cuda (pressure, velocity, field, dt, ds, rho_csq, size):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
 	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
 	
-	if i<pressure.shape[0] and j<pressure.shape[1] and k<pressure.shape[2]:
+	if i< int(size) and j< int(size) and k< int(size): #Move to the last else?
 		
-		#pressure[i,j,k] = ( pressure[i, j, k] - rho_csq * dt * (
-		#		vx[i, j, k] - vx[max(0, i-1), j, k] + vy[i, j, k] - vy[i, max(0, j-1), k] + vz[i, j, k] - vz[i, j, max(0, k-1)] ) / ( ds )
-		#	) / ( 1 + ( 1 - beta[i, j, k] + sigma[i, j, k] ) * dt )
+		if i < size - 1:
+
+			if j < size - 1:
 		
-		pressure[i, j, k] = ( pressure[i, j, k] - rho_csq * dt * (
-				velocity[min(velocity.shape[0]-1, i+1), j, k, 0] - velocity[i, j, k, 0] + velocity[i, min(velocity.shape[0]-1, j+1), k, 1] - velocity[i, j, k, 1]
-				+ velocity[i, j, min(velocity.shape[0]-1, k+1), 2] - velocity[i, j, k, 2] ) / ( ds )
-				) / ( 1 + ( 1 - field[0, i, j, k] + field[1, i, j, k] ) * dt )
+				if k < size - 1:
+					
+					pressure[i + int(j*size + k*size**2)] = ( pressure[i + int(j*size + k*size**2)] - rho_csq * dt * (
+										velocity[i+1 + int(j*size + k*size**2)] - velocity[i + int(j*size + k*size**2)] + velocity[i + int((j+1)*size + k*size**2) + int(velocity.shape[0] / 3)] - velocity[i + int(j*size + k*size**2) + int(velocity.shape[0] / 3)]
+										+ velocity[i + int(j*size + (k+1)*size**2) + int(2*velocity.shape[0] / 3)] - velocity[i + int(j*size + k*size**2) + int(2* velocity.shape[0] / 3)] ) / ( ds )
+										) / ( 1 + ( 1 - field[i + int(j*size + k*size**2)] + field[i + int(j*size + k*size**2) + int(field.shape[0] / 2)] ) * dt )
+
+				else:
+				
+					pressure[i + int(j*size + k*size**2)] = ( pressure[i + int(j*size + k*size**2)] - rho_csq * dt * (
+										velocity[i+1 + int(j*size + k*size**2)] - velocity[i + int(j*size + k*size**2)] + velocity[i + int((j+1)*size + k*size**2) + int(velocity.shape[0] / 3)] - velocity[i + int(j*size + k*size**2) + int(velocity.shape[0] / 3)]
+										) / ( ds )
+										) / ( 1 + ( 1 - field[i + int(j*size + k*size**2)] + field[i + int(j*size + k*size**2) + int(field.shape[0] / 2)] ) * dt )
+
+			else:
+				
+				
+				if k < size - 1:
+
+					pressure[i + int(j*size + k*size**2)] = ( pressure[i + int(j*size + k*size**2)] - rho_csq * dt * (
+										velocity[i+1 + int(j*size + k*size**2)] - velocity[i + int(j*size + k*size**2)]
+										+ velocity[i + int(j*size + (k+1)*size**2) + int(2*velocity.shape[0] / 3)] - velocity[i + int(j*size + k*size**2) + int(2* velocity.shape[0] / 3)] ) / ( ds )
+										) / ( 1 + ( 1 - field[i + int(j*size + k*size**2)] + field[i + int(j*size + k*size**2) + int(field.shape[0] / 2)] ) * dt )
+					
+				else:
+				
+					pressure[i + int(j*size + k*size**2)] =  ( pressure[i + int(j*size + k*size**2)] - rho_csq * dt * (
+										velocity[i+1 + int(j*size + k*size**2)] - velocity[i + int(j*size + k*size**2)]
+										) / ( ds )
+										) / ( 1 + ( 1 - field[i + int(j*size + k*size**2)] + field[i + int(j*size + k*size**2) + int(field.shape[0] / 2)] ) * dt )
+
+		
+
+		else:
+				
+			if j < size - 1:
+		
+				if k < size - 1:
+
+					pressure[i + int(j*size + k*size**2)] = ( pressure[i + int(j*size + k*size**2)] - rho_csq * dt * (
+										velocity[i + int((j+1)*size + k*size**2) + int(velocity.shape[0] / 3)] - velocity[i + int(j*size + k*size**2) + int(velocity.shape[0] / 3)]
+										+ velocity[i + int(j*size + (k+1)*size**2) + int(2*velocity.shape[0] / 3)] - velocity[i + int(j*size + k*size**2) + int(2* velocity.shape[0] / 3)] ) / ( ds )
+										) / ( 1 + ( 1 - field[i + int(j*size + k*size**2)] + field[i + int(j*size + k*size**2) + int(field.shape[0] / 2)] ) * dt )
+
+				else:
+				
+					pressure[i + int(j*size + k*size**2)] = ( pressure[i + int(j*size + k*size**2)] - rho_csq * dt * (
+										velocity[i + int((j+1)*size + k*size**2) + int(velocity.shape[0] / 3)] - velocity[i + int(j*size + k*size**2) + int(velocity.shape[0] / 3)]
+										) / ( ds )
+										) / ( 1 + ( 1 - field[i + int(j*size + k*size**2)] + field[i + int(j*size + k*size**2) + int(field.shape[0] / 2)] ) * dt )
+
+			else:
+				
+				
+				if k < size - 1:
+
+					pressure[i + int(j*size + k*size**2)] = ( pressure[i + int(j*size + k*size**2)] - rho_csq * dt * (
+										velocity[i + int(j*size + (k+1)*size**2) + int(2*velocity.shape[0] / 3)] - velocity[i + int(j*size + k*size**2) + int(2* velocity.shape[0] / 3)] ) / ( ds )
+										) / ( 1 + ( 1 - field[i + int(j*size + k*size**2)] + field[i + int(j*size + k*size**2) + int(field.shape[0] / 2)] ) * dt )
+					
+				else:
+				
+					pressure[i + int(j*size + k*size**2)] =  ( pressure[i + int(j*size + k*size**2)] ) / ( 1 + ( 1 - field[i + int(j*size + k*size**2)] + field[i + int(j*size + k*size**2) + int(field.shape[0] / 2)] ) * dt )
+
 		
 def set_velocity_emitters_noreturn_cuda (velocity_boundary, normal, emitters_amplitude, emitters_frequency, emitters_phase, time):
 	
@@ -263,7 +382,7 @@ class calculator_cuda():
 	'''
 	Configurate the calculator
 	'''
-	def __init__(self, stream=None, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
+	def __init__(self, nPoints, stream=None, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
 
 		assert cuda.is_available(), 'Cuda is not available.'
 		assert stream is not None, 'Cuda not configured. Stream required.'
@@ -279,7 +398,9 @@ class calculator_cuda():
 		self.blockdim = blockdim
 		self.griddim = None
 		self.multiProcessorCount = int(cuda.get_current_device().MULTIPROCESSOR_COUNT)
-
+		
+		self.nPoints = nPoints
+		
 		self.config_calculator(size, blockdim, stream)
 
 		self.config_calculator_functions()
@@ -295,14 +416,14 @@ class calculator_cuda():
 				'step_velocity_values':							cuda.jit('void('+self.OutVarType+'[:,:,:,:], '+self.OutVarType+'[:,:,:,:], '+self.OutVarType+'[:,:,:], '
 																				+self.VarType+'[:,:,:], '	+self.VarType+'[:,:,:], '	+self.VarType+', '
 																				+self.VarType+', '			+self.VarType+')', fastmath = True)(step_velocity_values_noreturn_cuda),
-				'step_pressure_values':							cuda.jit('void('+self.OutVarType+'[:,:,:], '+self.OutVarType+'[:,:,:,:], '+self.VarType+'[:,:,:,:], '	
-																				+self.VarType+', '			+self.VarType+', '			+self.VarType+')', fastmath = True)(step_pressure_values_noreturn_cuda),
+				'step_pressure_values':							cuda.jit('void('+self.OutVarType+'[:], '+self.OutVarType+'[:], '+self.VarType+'[:], '	
+																				+self.VarType+', '			+self.VarType+', '			+self.VarType+', int64)', fastmath = True)(step_pressure_values_noreturn_cuda),
 				'set_velocity_emitters':						cuda.jit('void('+self.OutVarType+'[:,:,:,:], '+self.VarType+'[:,:,:,:], '+self.VarType+'[:,:,:], '+self.VarType+'[:,:,:], '
 																				+self.VarType+'[:,:,:], '+self.VarType+')', fastmath = True)(set_velocity_emitters_noreturn_cuda),
-				'step_velocity_values_n_emitters':				cuda.jit('void('+self.OutVarType+'[:,:,:,:], '	+self.OutVarType+'[:,:,:], '+self.VarType+'[:,:,:,:], '
+				'step_velocity_values_n_emitters':				cuda.jit('void('+self.OutVarType+'[:], '	+self.OutVarType+'[:], '+self.VarType+'[:], '
 																				+self.VarType+', '			+self.VarType+', '	+self.VarType +', '
-																				+self.VarType+'[:,:,:,:], '		+self.VarType+'[:,:,:], '	+self.VarType+'[:,:,:], '
-																				+self.VarType+'[:,:,:], '		+self.VarType+')', fastmath = True)(step_velocity_values_n_emitters_noreturn_cuda)
+																				+self.VarType+'[:], '		+self.VarType+'[:], '	+self.VarType+'[:], '
+																				+self.VarType+'[:], '		+self.VarType+', int64)', fastmath = True)(step_velocity_values_n_emitters_noreturn_cuda)
 																	
 				}
 			
@@ -374,10 +495,10 @@ class calculator_cuda():
 					and cuda.cudadrv.devicearray.is_cuda_ndarray(pressure) and cuda.cudadrv.devicearray.is_cuda_ndarray(field)), 'Arrays must be loaded in GPU device.'
 			#assert int(axis) in [0, 1, 2], f'Axis {axis} not valid.'
 
-			self.config_calculator(size=(velocity.shape[0], velocity.shape[1], velocity.shape[2]), blockdim=optimize_blockdim(self.multiProcessorCount, velocity.shape[0], velocity.shape[1], velocity.shape[2]))
+			self.config_calculator(size=(self.nPoints, self.nPoints, self.nPoints), blockdim=optimize_blockdim(self.multiProcessorCount, self.nPoints, self.nPoints, self.nPoints))
 			
 			self.config['step_velocity_values_n_emitters'][self.griddim, self.blockdim, self.stream](velocity, pressure, field, dt, ds, rho,
-																						emitters_normal, emitters_amplitude, emitters_frequency, emitters_phase, time)
+																						emitters_normal, emitters_amplitude, emitters_frequency, emitters_phase, time, self.nPoints)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.calculator.calculator_cuda.step_velocity_values_n_emitters: {e}')
@@ -388,9 +509,9 @@ class calculator_cuda():
 			assert (cuda.cudadrv.devicearray.is_cuda_ndarray(pressure) and cuda.cudadrv.devicearray.is_cuda_ndarray(velocity)
 					and cuda.cudadrv.devicearray.is_cuda_ndarray(field)), 'Arrays must be loaded in GPU device.'
 			
-			self.config_calculator(size=(pressure.shape[0], pressure.shape[1], pressure.shape[2]), blockdim=optimize_blockdim(self.multiProcessorCount, pressure.shape[0], pressure.shape[1], pressure.shape[2]))
+			self.config_calculator(size=(self.nPoints, self.nPoints, self.nPoints), blockdim=optimize_blockdim(self.multiProcessorCount, self.nPoints, self.nPoints, self.nPoints))
 			
-			self.config['step_pressure_values'][self.griddim, self.blockdim, self.stream](pressure, velocity, field, dt, ds, rho_csq)
+			self.config['step_pressure_values'][self.griddim, self.blockdim, self.stream](pressure, velocity, field, dt, ds, rho_csq, self.nPoints)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.calculator.calculator_cuda.step_pressure_values: {e}')

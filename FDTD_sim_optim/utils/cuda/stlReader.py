@@ -204,9 +204,9 @@ def results_to_list_noreturn_cuda (results_grid, geometry_points, grid_min, mesh
 			
 			idx = cuda.atomic.add(count, 0, 1)
 
-			geometry_points[idx, 0] = i - grid_min + mesh_min[0]
-			geometry_points[idx, 1] = j - grid_min + mesh_min[1]
-			geometry_points[idx, 2] = k - grid_min + mesh_min[2]
+			geometry_points[idx] = i - grid_min + mesh_min[0]
+			geometry_points[idx + int(geometry_points.shape[0] / 3)] = j - grid_min + mesh_min[1]
+			geometry_points[idx + 2*int(geometry_points.shape[0] / 3)] = k - grid_min + mesh_min[2]
 			
 		#else:
 			#points[cuda.threadIdx.x, cuda.threadIdx.y, cuda.threadIdx.z] = 0
@@ -223,9 +223,9 @@ def surface_to_result_noreturn_cuda (surface_points, geometry_points, grid_min, 
 	
 	if i < surface_points.shape[0]:
 		
-		geometry_points[i, 0] = surface_points[i,0] - grid_min + mesh_min[0]
-		geometry_points[i, 1] = surface_points[i,1] - grid_min + mesh_min[1]
-		geometry_points[i, 2] = surface_points[i,2] - grid_min + mesh_min[2]
+		geometry_points[i] = surface_points[i,0] - grid_min + mesh_min[0]
+		geometry_points[i + int(surface_points.shape[0] / 3)] = surface_points[i,1] - grid_min + mesh_min[1]
+		geometry_points[i + 2*int(surface_points.shape[0] / 3)] = surface_points[i,2] - grid_min + mesh_min[2]
 		
 
 class stlReader_cuda():
@@ -298,7 +298,7 @@ class stlReader_cuda():
 				'add_check_int_ext_results':		cuda.jit('void(int64[:,:,:], int64[:,:,:])', fastmath = True)(add_check_int_ext_results_noreturn_cuda),
 				'compute_results':					cuda.jit('void(int64[:,:,:], int64)', fastmath = True)(compute_results_noreturn_cuda),
 				'count_points_result':				cuda.jit('void(int64[:,:,:], int64, int64, int64[:], int64[:], int64[:])', fastmath = True)(count_points_result_noreturn_cuda),
-				'results_to_list':					cuda.jit('void(int64[:,:,:], int64[:,:], int64, int64[:], int64[:])', fastmath = True)(results_to_list_noreturn_cuda),
+				'results_to_list':					cuda.jit('void(int64[:,:,:], int64[:], int64, int64[:], int64[:])', fastmath = True)(results_to_list_noreturn_cuda),
 				'surface_to_result':				cuda.jit('void(int64[:,:], int64[:,:], int64, int64[:])', fastmath = True)(surface_to_result_noreturn_cuda)
 																	
 				}
@@ -525,7 +525,7 @@ class stlReader_cuda():
 			
 			#print('counted', count)
 			#print(self.auxiliar['mesh_limits']['min'])
-			geometry_points = cuda.to_device(np.zeros((count[0], 3), dtype = int64), stream = self.stream)
+			geometry_points = cuda.to_device(np.zeros(count[0] * 3, dtype = int64), stream = self.stream)
 			
 			self.config_stlReader(size = (self.results_grid.shape[0], self.results_grid.shape[1], self.results_grid.shape[2]),
 									blockdim = optimize_blockdim(self.multiProcessorCount, self.results_grid.shape[0], self.results_grid.shape[1], self.results_grid.shape[2]))

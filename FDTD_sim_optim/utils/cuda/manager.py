@@ -171,68 +171,70 @@ def concatenate_matrix_delete_rowsncols_noreturn_cuda (old_old, old_new, new_old
 # For sigma definition.
 # Sigma-field full of 0 (no absorption), we substitute for a value(effect) to make the acoustic
 # field response to absorption in this volume
-def add_absorption_object_no_return_cuda(geometry_points, absorption, effect):
+def add_absorption_object_no_return_cuda(geometry_points, absorption, effect, size):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y              #Must be fixed. Doesn't work
+	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
 	
-	if i<geometry_points.shape[0]:
+	if i<size:
 		
-		cuda.atomic.max(absorption,(1, geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]), effect)
+		cuda.atomic.max(absorption, int(absorption.shape[0] / 2) + geometry_points[i] + geometry_points[i + size] + geometry_points[i + 2 * size], effect)
 
 # For beta definition.
 # Beta-field full of 1 (air), we substitute for a value between 0 and 1 to make the acoustic
 # field response to objects effects		
-def add_geometry_object_no_return_cuda(geometry_points, field, effect):
+def add_geometry_object_no_return_cuda(geometry_points, field, effect, size):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	
-	if i<geometry_points.shape[0]:
+	if i<int(geometry_points.shape[0] / 3):
 		
-		cuda.atomic.min(field,(0, geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]), effect)
+		cuda.atomic.min(field, int(geometry_points[i] + geometry_points[i + int(geometry_points.shape[0] / 3)]*size + geometry_points[i + 2 * int(geometry_points.shape[0] / 3)]*size**2), effect)
 		
-def add_extended_geometry_nPoints_no_return_cuda (geometry_points, field, distance, effect):
+def add_extended_geometry_nPoints_no_return_cuda (geometry_points, field, distance, effect, size): #Needs to be fixed
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	
-	if i<geometry_points.shape[0]:
+	if i<int(size**3):
 		
 		for a in range(-distance, distance + 1):
 			for b in range(-distance, distance + 1):
 				for c in range(-distance, distance + 1):
 					if math.sqrt(a**2+b**2+c**2) >= float(distance):
-						cuda.atomic.min(field,(0, geometry_points[i, 0] + a, geometry_points[i, 1] + b, geometry_points[i, 2] + c), effect)
+						cuda.atomic.min(field, geometry_points[i + a] + geometry_points[i + b + size]*size + geometry_points[i + c + 2 * size]*int(size**2), effect)
 
 #Initialize the limits of the simulation volume with PML method
-def PML_limit_volume_no_return_cuda (absorption, maxDist, maxValue, minValue):
+def PML_limit_volume_no_return_cuda (absorption, maxDist, maxValue, minValue, size):
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
 	k = cuda.blockIdx.z * cuda.blockDim.z + cuda.threadIdx.z
 	
-	if i<absorption.shape[1] and j<absorption.shape[2] and k<absorption.shape[3]:
+	if i< size and j< size and k< size:
 		
-		if (i<maxDist or i>=absorption.shape[1]-maxDist) or (j<maxDist or j>=absorption.shape[2]-maxDist) or (k<maxDist or k>=absorption.shape[3]-maxDist):
+		if (i<maxDist or i>=size-maxDist) or (j<maxDist or j>=size-maxDist) or (k<maxDist or k>=size-maxDist):
 			cuda.atomic.max(absorption,
-							(1,i,j,k),
-							(maxValue - minValue)*(1 - min(i, j, k, absorption.shape[1]-i-1, absorption.shape[2]-j-1, absorption.shape[3]-k-1)/maxDist) + minValue)
+							int(absorption.shape[0] / 2) + i + j * size + k * int(size**2),
+							(maxValue - minValue)*(1 - min(i, j, k, size-i-1, size-j-1, size-k-1)/maxDist) + minValue)
 		
 #Then use concatenate arrays
 #Emitters properties defined as -> Amplitude, Frequency, Phase <- In that order			
-def set_point_as_emitter_no_return_cuda (emitters_amplitude, emitters_frequency, emitters_phase, emitters_normal_out, geometry_points, amplitude, frequency, phase, emitters_normal_in):
+def set_point_as_emitter_no_return_cuda (emitters_amplitude, emitters_frequency, emitters_phase, emitters_normal_out, geometry_points, amplitude, frequency, phase, emitters_normal_in, size):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	
-	if i<geometry_points.shape[0]:
+	if i<int(geometry_points.shape[0]/3):
 		
-		emitters_amplitude	[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = amplitude
-		emitters_frequency	[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = 2 * math.pi * frequency
-		emitters_phase		[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2]] = 2 * math.pi *phase / 360
-		emitters_normal_out	[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2], 0] = emitters_normal_in[0]
-		emitters_normal_out	[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2], 1] = emitters_normal_in[1]
-		emitters_normal_out	[geometry_points[i, 0], geometry_points[i, 1], geometry_points[i, 2], 2] = emitters_normal_in[2]
+		emitters_amplitude	[geometry_points[i] + geometry_points[i + int(geometry_points.shape[0] / 3)]*int(size) + geometry_points[i + 2 * int(geometry_points.shape[0] / 3)]*int(size**2)] = amplitude
+		emitters_frequency	[geometry_points[i] + geometry_points[i + int(geometry_points.shape[0] / 3)]*int(size) + geometry_points[i + 2 * int(geometry_points.shape[0] / 3)]*int(size**2)] = 2 * math.pi * frequency
+		emitters_phase		[geometry_points[i] + geometry_points[i + int(geometry_points.shape[0] / 3)]*int(size) + geometry_points[i + 2 * int(geometry_points.shape[0] / 3)]*int(size**2)] = 2 * math.pi *phase / 360
+		emitters_normal_out	[geometry_points[i] + geometry_points[i + int(geometry_points.shape[0] / 3)]*int(size) + geometry_points[i + 2 * int(geometry_points.shape[0] / 3)]*int(size**2)] = emitters_normal_in[0]
+		emitters_normal_out	[geometry_points[i] + geometry_points[i + int(geometry_points.shape[0] / 3)]*int(size) + geometry_points[i + 2 * int(geometry_points.shape[0] / 3)]*int(size**2) + int(size**3)] = emitters_normal_in[1]
+		emitters_normal_out	[geometry_points[i] + geometry_points[i + int(geometry_points.shape[0] / 3)]*int(size) + geometry_points[i + 2 * int(geometry_points.shape[0] / 3)]*int(size**2) + int(2 * size**3)] = emitters_normal_in[2]
 		
 class manager_cuda():
 	
-	def __init__ (self, stream=None, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
+	def __init__ (self, nPoints, stream=None, size=None, var_type='float64', out_var_type = 'complex128', blockdim=(16,16)):
 		
 		assert cuda.is_available(), 'Cuda is not available.'
 		assert stream is not None, 'Cuda not configured. Stream required.'
@@ -245,6 +247,8 @@ class manager_cuda():
 		self.griddim = None
 		self.stream = stream
 		self.multiProcessorCount = int(cuda.get_current_device().MULTIPROCESSOR_COUNT)
+		
+		self.nPoints = nPoints
 		
 		self.config = None
 
@@ -285,12 +289,12 @@ class manager_cuda():
 																					+self.VarType+'[:,:])', fastmath = True)(concatenate_matrix_noreturn_cuda),
 				'concatenate_outvartype_matrix':					cuda.jit('void('+self.OutVarType+'[:,:], '+self.OutVarType+'[:,:], '+self.OutVarType+'[:,:], '+self.OutVarType+'[:,:], '
 																					+self.OutVarType+'[:,:])', fastmath = True)(concatenate_matrix_noreturn_cuda),
-				'add_absorption_object': 							cuda.jit('void(int64[:,:], '+self.VarType+'[:,:,:,:], '+self.VarType+')', fastmath = True)(add_absorption_object_no_return_cuda),
-				'add_geometry_object':					 			cuda.jit('void(int64[:,:], '+self.VarType+'[:,:,:,:], '+self.VarType+')', fastmath = True)(add_geometry_object_no_return_cuda),
-				'add_extended_geometry_nPoints':					cuda.jit('void(int64[:,:], '+self.VarType+'[:,:,:,:], int64, '+self.VarType+')', fastmath = True)(add_extended_geometry_nPoints_no_return_cuda),
-				'PML_limit_volume':					 				cuda.jit('void('+self.VarType+'[:,:,:,:], int64, '+self.VarType+', '+self.VarType+')', fastmath = True)(PML_limit_volume_no_return_cuda),
-				'set_point_as_emitter':								cuda.jit('void('+self.VarType+'[:,:,:], '	+self.VarType+'[:,:,:], '	+self.VarType+'[:,:,:], '	+self.VarType+'[:,:,:,:], int64[:,:], '
-																					+self.VarType+', '			+self.VarType+', '			+self.VarType+', '			+self.VarType+'[:])', fastmath = True)(set_point_as_emitter_no_return_cuda)
+				'add_absorption_object': 							cuda.jit('void(int64[:], '+self.VarType+'[:], '+self.VarType+', int64)', fastmath = True)(add_absorption_object_no_return_cuda),
+				'add_geometry_object':					 			cuda.jit('void(int64[:], '+self.VarType+'[:], '+self.VarType+', int64)', fastmath = True)(add_geometry_object_no_return_cuda),
+				'add_extended_geometry_nPoints':					cuda.jit('void(int64[:], '+self.VarType+'[:], int64, '+self.VarType+', int64)', fastmath = True)(add_extended_geometry_nPoints_no_return_cuda),
+				'PML_limit_volume':					 				cuda.jit('void('+self.VarType+'[:], int64, '+self.VarType+', '+self.VarType+', '+self.VarType+')', fastmath = True)(PML_limit_volume_no_return_cuda),
+				'set_point_as_emitter':								cuda.jit('void('+self.VarType+'[:], '	+self.VarType+'[:], '	+self.VarType+'[:], '	+self.VarType+'[:], int64[:], '
+																					+self.VarType+', '			+self.VarType+', '			+self.VarType+', '			+self.VarType+'[:], int64)', fastmath = True)(set_point_as_emitter_no_return_cuda)
 				}
 			
 		except Exception as e:
@@ -333,10 +337,9 @@ class manager_cuda():
 			
 			#assert (type(geometry_points) == np.ndarray and type(absorption) == np.ndarray), 'Arrays must be defined as numpy array.'
 			
-			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(self.multiProcessorCount, geometry_points.shape[0]))
+			self.config_manager(size=int(geometry_points.shape[0] / 3), blockdim=optimize_blockdim(self.multiProcessorCount, int(geometry_points.shape[0] / 3)))
 
-			self.config['add_absorption_object'][self.griddim, self.blockdim, self.stream](
-				geometry_points, absorption, effect)
+			self.config['add_absorption_object'][self.griddim, self.blockdim, self.stream]( geometry_points, absorption, effect, int(geometry_points.shape[0] / 3))
 
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.add_absorption_object: {e}')
@@ -351,9 +354,9 @@ class manager_cuda():
 			
 			#assert (type(geometry_points) == np.ndarray and type(field) == np.ndarray), 'Arrays must be defined as numpy array.'
 			
-			self.config_manager(size=geometry_points.shape[0], blockdim=optimize_blockdim(self.multiProcessorCount, geometry_points.shape[0]))
+			self.config_manager(size=int(geometry_points.shape[0] / 3), blockdim=optimize_blockdim(self.multiProcessorCount, int(geometry_points.shape[0] / 3)))
 
-			self.config['add_geometry_object'][self.griddim, self.blockdim, self.stream](geometry_points, field, effect)
+			self.config['add_geometry_object'][self.griddim, self.blockdim, self.stream](geometry_points, field, effect, self.nPoints)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.add_geometry_object: {e}')
@@ -368,10 +371,10 @@ class manager_cuda():
 			#assert (type(geometry_points) == np.ndarray and type(field) == np.ndarray), 'Arrays must be defined as numpy array.'
 			assert int(distance)>0, 'Distance must be positive.'
 			
-			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(self.multiProcessorCount, geometry_points.shape[0]))
+			self.config_manager(size=int(geometry_points.shape[0] / 3), blockdim=optimize_blockdim(self.multiProcessorCount, int(geometry_points.shape[0] / 3)))
 
 			self.config['add_extended_geometry_nPoints'][self.griddim, self.blockdim, self.stream](
-				geometry_points, field, distance, effect)
+				geometry_points, field, distance, effect, int(geometry_points.shape[0] / 3))
 
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.extend_geometry_nPoints: {e}')
@@ -389,12 +392,12 @@ class manager_cuda():
 			
 			#print(absorption.shape, maxDist, maxValue, minValue)
 
-			self.config_manager(size=(absorption.shape[1], absorption.shape[2], absorption.shape[3]), blockdim=optimize_blockdim(self.multiProcessorCount, absorption.shape[1], absorption.shape[2], absorption.shape[3]))
+			self.config_manager(size=(self.nPoints,self.nPoints,self.nPoints), blockdim=optimize_blockdim(self.multiProcessorCount, self.nPoints,self.nPoints,self.nPoints))
 
 			#print(self.griddim, self.blockdim, self.stream)
 
 			self.config['PML_limit_volume'][self.griddim, self.blockdim, self.stream](
-				absorption, maxDist, maxValue, minValue)
+				absorption, maxDist, maxValue, minValue, self.nPoints)
 
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.PML_limit_volume: {e}')
@@ -407,10 +410,12 @@ class manager_cuda():
 			
 			#assert (type(geometry_points) == np.ndarray), 'Arrays must be defined as numpy array.'
 			
-			self.config_manager(size=(geometry_points.shape[0]), blockdim=optimize_blockdim(self.multiProcessorCount, geometry_points.shape[0]))
-			#print('?')
+			self.config_manager(size=int(geometry_points.shape[0] / 3), blockdim=optimize_blockdim(self.multiProcessorCount, int(geometry_points.shape[0] / 3)))
+			print('?')
 			self.config['set_point_as_emitter'][self.griddim, self.blockdim, self.stream](
-				self.emitters_amplitude, self.emitters_frequency, self.emitters_phase, self.emitters_normal, geometry_points, amplitude, frequency, phase, normal_emission)
+				self.emitters_amplitude, self.emitters_frequency, self.emitters_phase, self.emitters_normal, geometry_points, amplitude, frequency, phase, normal_emission, self.nPoints)
+
+			print('Done 3')
 
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.set_point_as_emitter: {e}')
@@ -419,7 +424,7 @@ class manager_cuda():
 		try:
 			
 			self.add_geometry_object(geometry_points, self.geometry_field, 0)
-			#print('Done')
+			print('Done')
 			
 			if max_distance>0:
 				for i in range(1, max_distance):
@@ -427,6 +432,7 @@ class manager_cuda():
 					self.extend_geometry_nPoints(geometry_points, self.geometry_field, i, i/(max_distance + 1))
 					
 					self.stream.synchronize()
+			print('Done 2')
 			
 		except Exception as e:
 			print(f'Error in utils.cuda.manager.manager_cuda.locate_geometry_object: {e}')

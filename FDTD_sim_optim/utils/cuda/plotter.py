@@ -5,32 +5,32 @@ import numpy as np, math, cmath, os, cv2
 from .calculator import optimize_blockdim
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-import multiprocessing as mp
+#import multiprocessing as mp
 
-def extract_data_x_plane_noreturn_cuda(data, field, value, amp_or_phase):
+def extract_data_x_plane_noreturn_cuda(data, field, value, amp_or_phase, size):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
     
-	if i<field.shape[1] and j<field.shape[2]:
-		data[i, j] = cmath.polar(field[value, i, j])[amp_or_phase]
+	if i<data.shape[0] and j<data.shape[1]:
+		data[i, j] = cmath.polar(field[int(value + i*size + j*size**2)])[amp_or_phase]
 			
-def extract_data_y_plane_noreturn_cuda(data, field, value, amp_or_phase):
+def extract_data_y_plane_noreturn_cuda(data, field, value, amp_or_phase, size):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
     
-	if i<field.shape[0] and j<field.shape[2]:
-		data[i, j] = cmath.polar(field[i, value, j])[amp_or_phase]
+	if i<data.shape[0] and j<data.shape[1]:
+		data[i, j] = cmath.polar(field[int(i + value*size + j*size**2)])[amp_or_phase]
 			
 			
-def extract_data_z_plane_noreturn_cuda(data, field, value, amp_or_phase):
+def extract_data_z_plane_noreturn_cuda(data, field, value, amp_or_phase, size):
 	
 	i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 	j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
     
-	if i<field.shape[0] and j<field.shape[1]:
-		data[i, j] = cmath.polar(field[i, j, value])[amp_or_phase]
+	if i<data.shape[0] and j<data.shape[1]:
+		data[i, j] = cmath.polar(field[int(i + j*size + value*size**2)])[amp_or_phase]
 
 def extract_data_plane_noreturn_cuda(data, field, axis, value, amp_or_phase):
 	
@@ -121,6 +121,7 @@ class plotter():
 										
 		self.dt = dt
 		self.region['value'] = round( ( self.region['value'] - grid_limits[0] ) / ds )
+		self.nPoints = nPoints
 
 		self.data = None
 		self.X, self.Y = np.meshgrid(x_pos, y_pos, indexing = 'ij')
@@ -128,7 +129,8 @@ class plotter():
 		#plt.ion()
 		
 		self.figure = None
-		
+		self.bg = None
+
 		#self.define_plot()
 		
 	
@@ -137,9 +139,9 @@ class plotter():
 			self.config = {
 				
 				'extract_data_plane':              cuda.jit('void('+self.VarType+'[:,:], '+self.OutVarType+'[:,:,:], int64, int64, int64)', fastmath = True)(extract_data_plane_noreturn_cuda),
-				'extract_data_x_plane':              cuda.jit('void('+self.VarType+'[:,:], '+self.OutVarType+'[:,:,:], int64, int64)', fastmath = True)(extract_data_x_plane_noreturn_cuda),
-				'extract_data_y_plane':              cuda.jit('void('+self.VarType+'[:,:], '+self.OutVarType+'[:,:,:], int64, int64)', fastmath = True)(extract_data_y_plane_noreturn_cuda),
-				'extract_data_z_plane':              cuda.jit('void('+self.VarType+'[:,:], '+self.OutVarType+'[:,:,:], int64, int64)', fastmath = True)(extract_data_z_plane_noreturn_cuda)
+				'extract_data_x_plane':              cuda.jit('void('+self.VarType+'[:,:], '+self.OutVarType+'[:,], int64, int64, int64)', fastmath = True)(extract_data_x_plane_noreturn_cuda),
+				'extract_data_y_plane':              cuda.jit('void('+self.VarType+'[:,:], '+self.OutVarType+'[:,], int64, int64, int64)', fastmath = True)(extract_data_y_plane_noreturn_cuda),
+				'extract_data_z_plane':              cuda.jit('void('+self.VarType+'[:,:], '+self.OutVarType+'[:,], int64, int64, int64)', fastmath = True)(extract_data_z_plane_noreturn_cuda)
                 
             }
 			
@@ -181,14 +183,14 @@ class plotter():
 			
 			if self.amp_or_phase == 0: #amplitude
 				self.im = self.ax.pcolormesh(self.X, self.Y, data, cmap='PuRd', vmin = self.vmin, vmax = self.vmax,
-							 shading='gouraud')
+							 shading='gouraud', animated=True)
 
 				if self.video_name is not None:
 					self.ax.set_title(self.plot_name)
 					
 			elif self.amp_or_phase == 1: #phase
 				self.im = self.ax.pcolormesh(self.X, self.Y, data, cmap='hsv', vmin = -3.15, vmax = 3.15,
-							shading='gouraud')
+							shading='gouraud', animated=True)
 				
 				if self.video_name is not None:
 						self.ax.set_title(self.plot_name)
@@ -217,33 +219,25 @@ class plotter():
 			#print(self.X.shape, self.Y.shape)
 			if self.mode == 'plane':
 				
+				if self.data is None:
+					self.data =  cuda.device_array((self.nPoints, self.nPoints),
+							dtype = self.VarType, stream = self.stream)
+
 				if self.axis == 0:
 					
-					if self.data is None:
-						self.data =  cuda.device_array((input_field.shape[1], input_field.shape[2]),
-								dtype = self.VarType, stream = self.stream)
-						
 					self.config_plotter(size=(self.data.shape[0], self.data.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, self.data.shape[0], self.data.shape[1]))
-					self.config['extract_data_x_plane'][self.griddim, self.blockdim, self.stream](self.data, input_field, self.region['value'], self.amp_or_phase)
+					self.config['extract_data_x_plane'][self.griddim, self.blockdim, self.stream](self.data, input_field, self.region['value'], self.amp_or_phase, self.nPoints)
 					
 				elif self.axis == 1:
 					
-					if self.data is None:
-						self.data =  cuda.device_array((input_field.shape[0], input_field.shape[2]),
-								dtype = self.VarType, stream = self.stream)
-						
 					self.config_plotter(size=(self.data.shape[0], self.data.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, self.data.shape[0], self.data.shape[1]))
-					self.config['extract_data_y_plane'][self.griddim, self.blockdim, self.stream](self.data, input_field, self.region['value'], self.amp_or_phase)
+					self.config['extract_data_y_plane'][self.griddim, self.blockdim, self.stream](self.data, input_field, self.region['value'], self.amp_or_phase, self.nPoints)
 					
 						
 				elif self.axis == 2:
 					
-					if self.data is None:
-						self.data =  cuda.device_array((input_field.shape[0], input_field.shape[1]),
-								dtype = self.VarType, stream = self.stream)
-					
 					self.config_plotter(size=(self.data.shape[0], self.data.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, self.data.shape[0], self.data.shape[1]))
-					self.config['extract_data_z_plane'][self.griddim, self.blockdim, self.stream](self.data, input_field, self.region['value'], self.amp_or_phase)
+					self.config['extract_data_z_plane'][self.griddim, self.blockdim, self.stream](self.data, input_field, self.region['value'], self.amp_or_phase, self.nPoints)
 					
 				
 				#self.config_plotter(size=(self.data.shape[0], self.data.shape[1]), blockdim=optimize_blockdim(self.multiProcessorCount, self.data.shape[0], self.data.shape[1]))
@@ -265,6 +259,7 @@ class plotter():
 				#self.ax.cla()
 
 				data = self.data.copy_to_host(stream=self.stream)
+				#print('In plot')
 				#print((data==0).sum(0))
 				
 				if self.figure is None:
@@ -273,16 +268,27 @@ class plotter():
 				
 					self.figure.colorbar(self.im, cax = self.cax, orientation = 'vertical')	
 					
+					plt.pause(0.01)
+					
+					if self.bg is None:
+						self.bg = self.figure.canvas.copy_from_bbox(self.figure.bbox)
+						
+					
 				else:
 					
+					self.figure.canvas.restore_region(self.bg)
+
 					self.im.set_array(data.ravel())
 
-				self.figure.canvas.draw()
-				#self.figure.canvas.flush_events()
+				self.ax.draw_artist(self.im)
+				self.figure.canvas.blit(self.figure.bbox)
+				self.figure.canvas.flush_events()
 				
-				plt.pause(0.01)
+				#plt.pause(0.01)
+				print('plotted')
 				
 				#plt.show()
+				
 				self.erase_variable(data)
 					
 			else:
@@ -308,7 +314,7 @@ class plotter():
 				farr = cv2.resize(farr, (self.video_quality[0], self.video_quality[1]))
 				bgr = cv2.cvtColor(farr, cv2.COLOR_RGBA2BGR)
 				self.out.write(bgr)
-					
+				print('saved')
 			else:
 				pass
 

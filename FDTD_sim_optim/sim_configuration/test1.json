@@ -2,7 +2,7 @@
   "precission": [ "float32", "complex64" ],
 
   "times": {
-    "thermalization": 1.0e-5,
+    "thermalization": 1.0e-4,
     "_comment_thermalization": "Seconds thermalizing the system",
     "simulation": 2e-5,
     "_comment_simulation": "Seconds of simulation after thermalizing",
@@ -17,7 +17,7 @@
       "_comment_dt": "s. 40kHz is 2.5e-5 times per second. Recommended ds / ( 2 * sqrt(2) * c )",
       "ds": 1e-4,
       "_comment_ds": "m. 40kHz is 8.575e-3 m of wavelegth. Recommended lambda/10 (approx). Keep in mind you have to change more parameters if you change this one.",
-      "nPoints": 512,
+      "nPoints": 256,
       "airAbsorptivity": 0.0,
       "density": 1.225,
       "_comment_density": "kg/m3",

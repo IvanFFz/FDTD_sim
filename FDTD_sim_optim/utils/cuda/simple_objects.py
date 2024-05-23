@@ -145,7 +145,7 @@ class simple_objects_cuda():
 			
 			self.config['generate_wall'][self.griddim, self.blockdim, self.stream](self.auxiliar['grid_volume'], aux_location, aux_normal, count, self.grid_limits[0])
 			#print('generated')
-			geometry_points = cuda.to_device(np.zeros((count[0], 3), dtype = int64), stream = self.stream)
+			geometry_points = cuda.to_device(np.zeros(count[0] * 3, dtype = int64), stream = self.stream)
 			count = np.array([0]).astype(int64)			
 
 			self.config['results_to_list'][self.griddim, self.blockdim, self.stream](self.auxiliar['grid_volume'], geometry_points, self.grid_limits[0], count)

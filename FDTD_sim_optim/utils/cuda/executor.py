@@ -201,9 +201,9 @@ class executor ():
               
             #self.config_executor(blockdim=self.blockdim, stream=self.stream)
         
-            self.calculator = calculator_cuda(stream = self.stream, var_type = self.VarType, out_var_type = self.OutVarType, blockdim = self.blockdim)
+            self.calculator = calculator_cuda(nPoints = self.nPoints, stream = self.stream, var_type = self.VarType, out_var_type = self.OutVarType, blockdim = self.blockdim)
             print('Calculator initialized')
-            self.manager = manager_cuda(stream = self.stream, var_type = self.VarType, out_var_type = self.OutVarType, blockdim = self.blockdim)
+            self.manager = manager_cuda(nPoints = self.nPoints, stream = self.stream, var_type = self.VarType, out_var_type = self.OutVarType, blockdim = self.blockdim)
             print('Manager initialized')
             self.loader.set_extra_parameters(self.manager, self.grid_limits)
             plotter_configuration = self.loader.load_plotter_configuration()
@@ -224,25 +224,25 @@ class executor ():
     def init_grid(self):
         try:
             
-            self.manager.pressure = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
+            self.manager.pressure = cuda.to_device(np.zeros((self.nPoints * self.nPoints * self.nPoints), dtype = self.out_var_type), stream = self.stream)
             
-            self.manager.velocity = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints, 3), dtype = self.out_var_type), stream = self.stream)
+            self.manager.velocity = cuda.to_device(np.zeros((self.nPoints * self.nPoints * self.nPoints * 3), dtype = self.out_var_type), stream = self.stream)
             #self.manager.velocity_y = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
             #self.manager.velocity_z = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
             
-            self.manager.emitters_amplitude = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.var_type), stream = self.stream)
-            self.manager.emitters_frequency = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.var_type), stream = self.stream)
-            self.manager.emitters_phase = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.var_type), stream = self.stream)
+            self.manager.emitters_amplitude = cuda.to_device(np.zeros((self.nPoints * self.nPoints * self.nPoints), dtype = self.var_type), stream = self.stream)
+            self.manager.emitters_frequency = cuda.to_device(np.zeros((self.nPoints * self.nPoints * self.nPoints), dtype = self.var_type), stream = self.stream)
+            self.manager.emitters_phase = cuda.to_device(np.zeros((self.nPoints * self.nPoints * self.nPoints), dtype = self.var_type), stream = self.stream)
             #self.manager.velocity_b = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints ,3), dtype = self.out_var_type), stream = self.stream)
             #self.manager.velocity_b_y = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
             #self.manager.velocity_b_z = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
             
-            self.manager.emitters_normal = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints, 3), dtype = self.var_type), stream = self.stream)
+            self.manager.emitters_normal = cuda.to_device(np.zeros((self.nPoints * self.nPoints * self.nPoints * 3), dtype = self.var_type), stream = self.stream)
             #self.manager.emitters_normal_y = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
             #self.manager.emitters_normal_z = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.out_var_type), stream = self.stream)
             
-            self.manager.geometry_field = cuda.to_device(np.array([np.ones((self.nPoints, self.nPoints, self.nPoints), dtype = self.var_type),
-                                                                  self.airAbsorptivity * np.ones((self.nPoints, self.nPoints, self.nPoints), dtype = self.var_type)]), stream = self.stream) #beta in the paper, init to air (1)
+            self.manager.geometry_field = cuda.to_device(np.concatenate([np.ones((self.nPoints * self.nPoints * self.nPoints), dtype = self.var_type),
+                                                                  self.airAbsorptivity * np.ones((self.nPoints * self.nPoints * self.nPoints), dtype = self.var_type)]), stream = self.stream) #beta in the paper, init to air (1)
             #if self.airAbsorptivity == 0.0:
             #    self.manager.absorptivity = cuda.to_device(np.zeros((self.nPoints, self.nPoints, self.nPoints), dtype = self.var_type), stream = self.stream) #sigma in the paper
             #else:
@@ -290,7 +290,7 @@ class executor ():
             self.calculator.step_pressure_values(self.manager.pressure, self.manager.velocity, self.manager.geometry_field,
                                                  self.dt, self.ds, self.density*self.c**2)
             
-            self.stream.synchronize()
+            #self.stream.synchronize()
                         
             #self.calculator.set_velocity_emitters(self.manager.velocity_b, self.manager.emitters_normal, self.manager.emitters_amplitude, self.manager.emitters_frequency, self.manager.emitters_phase, self.time)
             ##self.calculator.set_velocity_emitters(self.manager.velocity_b_y, self.manager.emitters_normal_y, self.manager.emitters_amplitude, self.manager.emitters_frequency, self.manager.emitters_phase, self.time)
@@ -313,7 +313,7 @@ class executor ():
                                                             self.manager.emitters_normal, self.manager.emitters_amplitude, self.manager.emitters_frequency,
                                                             self.manager.emitters_phase, self.time)
             
-            self.stream.synchronize()
+            #self.stream.synchronize()
 
         except Exception as e:
             print(f'Error in utils.cuda.executor.executor.simulation_step: {e}')
@@ -353,6 +353,8 @@ class executor ():
                 self.time = self.time + self.dt
                 
                 print(self.time)
+                
+            self.stream.synchronize()
             
 
         except Exception as e:
