@@ -397,7 +397,8 @@ class calculator_cuda():
 		self.size = size
 		self.blockdim = blockdim
 		self.griddim = None
-		self.multiProcessorCount = int(cuda.get_current_device().MULTIPROCESSOR_COUNT)
+		#self.multiProcessorCount = int(cuda.get_current_device().MULTIPROCESSOR_COUNT)
+		self.maxThreadsPerBlock = int(cuda.get_current_device().MAX_THREADS_PER_BLOCK)
 		
 		self.nPoints = nPoints
 		
@@ -465,7 +466,7 @@ class calculator_cuda():
 					and cuda.cudadrv.devicearray.is_cuda_ndarray(emitters_frequency) and cuda.cudadrv.devicearray.is_cuda_ndarray(emitters_phase)), 'Arrays must be loaded in GPU device.'
 
 			self.config_calculator(size=(velocity_boundary.shape[0], velocity_boundary.shape[1], velocity_boundary.shape[2]), 
-						  blockdim=optimize_blockdim(self.multiProcessorCount, velocity_boundary.shape[0], velocity_boundary.shape[1], velocity_boundary.shape[2]))
+						  blockdim=optimize_blockdim(self.maxThreadsPerBlock, velocity_boundary.shape[0], velocity_boundary.shape[1], velocity_boundary.shape[2]))
 			
 			#print(velocity_boundary.copy_to_host(), emitters_amplitude.copy_to_host(), emitters_frequency.copy_to_host(), emitters_phase.copy_to_host(), time)
 
@@ -481,7 +482,7 @@ class calculator_cuda():
 					and cuda.cudadrv.devicearray.is_cuda_ndarray(sigma)), 'Arrays must be loaded in GPU device.'
 			#assert int(axis) in [0, 1, 2], f'Axis {axis} not valid.'
 
-			self.config_calculator(size=(velocity.shape[0], velocity.shape[1], velocity.shape[2]), blockdim=optimize_blockdim(self.multiProcessorCount, velocity.shape[0], velocity.shape[1], velocity.shape[2]))
+			self.config_calculator(size=(velocity.shape[0], velocity.shape[1], velocity.shape[2]), blockdim=optimize_blockdim(self.maxThreadsPerBlock, velocity.shape[0], velocity.shape[1], velocity.shape[2]))
 			
 			self.config['step_velocity_values'][self.griddim, self.blockdim, self.stream](velocity, v_b, pressure, beta, sigma, dt, ds, rho)
 
@@ -495,7 +496,7 @@ class calculator_cuda():
 					and cuda.cudadrv.devicearray.is_cuda_ndarray(pressure) and cuda.cudadrv.devicearray.is_cuda_ndarray(field)), 'Arrays must be loaded in GPU device.'
 			#assert int(axis) in [0, 1, 2], f'Axis {axis} not valid.'
 
-			self.config_calculator(size=(self.nPoints, self.nPoints, self.nPoints), blockdim=optimize_blockdim(self.multiProcessorCount, self.nPoints, self.nPoints, self.nPoints))
+			self.config_calculator(size=(self.nPoints, self.nPoints, self.nPoints), blockdim=optimize_blockdim(self.maxThreadsPerBlock, self.nPoints, self.nPoints, self.nPoints))
 			
 			self.config['step_velocity_values_n_emitters'][self.griddim, self.blockdim, self.stream](velocity, pressure, field, dt, ds, rho,
 																						emitters_normal, emitters_amplitude, emitters_frequency, emitters_phase, time, self.nPoints)
@@ -509,7 +510,7 @@ class calculator_cuda():
 			assert (cuda.cudadrv.devicearray.is_cuda_ndarray(pressure) and cuda.cudadrv.devicearray.is_cuda_ndarray(velocity)
 					and cuda.cudadrv.devicearray.is_cuda_ndarray(field)), 'Arrays must be loaded in GPU device.'
 			
-			self.config_calculator(size=(self.nPoints, self.nPoints, self.nPoints), blockdim=optimize_blockdim(self.multiProcessorCount, self.nPoints, self.nPoints, self.nPoints))
+			self.config_calculator(size=(self.nPoints, self.nPoints, self.nPoints), blockdim=optimize_blockdim(self.maxThreadsPerBlock, self.nPoints, self.nPoints, self.nPoints))
 			
 			self.config['step_pressure_values'][self.griddim, self.blockdim, self.stream](pressure, velocity, field, dt, ds, rho_csq, self.nPoints)
 

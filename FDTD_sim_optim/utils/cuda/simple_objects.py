@@ -30,9 +30,9 @@ def results_to_list_noreturn_cuda(grid, geometry_points, grid_min, count):
 			
 			idx = cuda.atomic.add(count, 0, 1)
 
-			geometry_points[idx, 0] = i 
-			geometry_points[idx, 1] = j
-			geometry_points[idx, 2] = k 
+			geometry_points[idx] = i 
+			geometry_points[idx + int(geometry_points.shape[0]/3)] = j
+			geometry_points[idx + int(2*geometry_points.shape[0]/3)] = k 
 			
 
 
@@ -94,7 +94,7 @@ class simple_objects_cuda():
 		try:
 			self.config = {
 				'generate_wall':					cuda.jit('void(int64[:,:,:], int64[:],  '+self.VarType+'[:], int64[:], int64)', fastmath = True)(generate_wall_noreturn_cuda),
-				'results_to_list':					cuda.jit('void(int64[:,:,:], int64[:,:], int64, int64[:])', fastmath = True)(results_to_list_noreturn_cuda)											
+				'results_to_list':					cuda.jit('void(int64[:,:,:], int64[:], int64, int64[:])', fastmath = True)(results_to_list_noreturn_cuda)											
 				}
 			
 		except Exception as e:

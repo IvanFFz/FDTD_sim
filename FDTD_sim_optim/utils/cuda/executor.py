@@ -248,7 +248,7 @@ class executor ():
             #else:
             #    self.manager.absorptivity = cuda.to_device(self.airAbsorptivity * np.ones((self.nPoints, self.nPoints, self.nPoints), dtype = self.var_type), stream = self.stream) #sigma in the paper
                           
-            self.manager.PML_limit_volume(self.manager.geometry_field, self.maxDistEffect, self.maxAbsorptivity, self.airAbsorptivity)
+            self.manager.PML_limit_volume(self.manager.geometry_field, self.layer_thickness, self.maxAbsorptivity, self.airAbsorptivity)
             
             #with np.printoptions(threshold=np.inf):
             #    print(self.manager.absorptivity.copy_to_host())
@@ -267,7 +267,7 @@ class executor ():
             
             self.loader.load_objects()
             
-            #self.loader.load_boundaries()
+            self.loader.load_boundaries()
             
             #with np.printoptions(threshold=np.inf):
             #    print(self.manager.geometry_field.copy_to_host()[80:120,80:120,80:120])
@@ -327,7 +327,7 @@ class executor ():
                 
                 self.time = self.time + self.dt
                 
-                print(self.time)
+                #print(self.time)
                 
             recording = False
                 
@@ -352,7 +352,7 @@ class executor ():
                         
                 self.time = self.time + self.dt
                 
-                print(self.time)
+                #print(self.time)
                 
             self.stream.synchronize()
             

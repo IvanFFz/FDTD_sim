@@ -2,11 +2,11 @@
   "precission": [ "float32", "complex64" ],
 
   "times": {
-    "thermalization": 1.0e-4,
+    "thermalization": 5e-6,
     "_comment_thermalization": "Seconds thermalizing the system",
-    "simulation": 2e-5,
+    "simulation": 1.511e-4,
     "_comment_simulation": "Seconds of simulation after thermalizing",
-    "record_times": [ 1e-8, 1.5e-5 ],
+    "record_times": [ 1e-8, 1.5e-4 ],
     "_comment_record_times": "Initial and final time of record after thermalizing. Maximum 1:02 minutes (1488 frames)."
   },
 
@@ -17,7 +17,7 @@
       "_comment_dt": "s. 40kHz is 2.5e-5 times per second. Recommended ds / ( 2 * sqrt(2) * c )",
       "ds": 1e-4,
       "_comment_ds": "m. 40kHz is 8.575e-3 m of wavelegth. Recommended lambda/10 (approx). Keep in mind you have to change more parameters if you change this one.",
-      "nPoints": 256,
+      "nPoints": 512,
       "airAbsorptivity": 0.0,
       "density": 1.225,
       "_comment_density": "kg/m3",
@@ -25,7 +25,7 @@
     },
 
     "boundary": {
-      "layer_thickness": 8,
+      "layer_thickness": 10,
       "_comment_layer_thickness": "The thicknes (in cells) of the PML boundary.",
       "max_object_distance": 8,
       "grid_limits_min": -0.01,

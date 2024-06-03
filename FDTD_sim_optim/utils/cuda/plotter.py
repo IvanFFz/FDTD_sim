@@ -375,7 +375,7 @@ class plotter():
 			#eq_to_frame = 1.0/self.fps
 			
 			if in_ratio <= self.dt/ratio_times:
-				print('.')
+				print(time)
 				return True
 
 			#for i in range(self.fps):
